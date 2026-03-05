@@ -29,16 +29,16 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 
 ## Scripts
 
-| Script | Purpose |
-|--------|---------|
-| `scripts/host-install-kvm.sh` | Install KVM/QEMU/virt-manager on Ubuntu |
-| `scripts/host-create-vm.sh` | Create the Windows 11 VM via CLI |
-| `scripts/vm-setup-ssh.ps1` | Enable OpenSSH on Windows 11 (run inside VM) |
-| `scripts/vm-extract-minecraft.ps1` | Decrypt and copy Minecraft files (run inside VM) |
-| `scripts/host-copy-from-vm.sh` | SSH into VM and copy game files to host |
-| `scripts/setup.sh` | Set up XCurl, SSL certs, GDK DLLs, and Lutris config |
-| `scripts/launch.sh` | Launch Minecraft directly via GDK-Proton |
-| `scripts/update-xcurl.sh` | Re-download XCurl.dll after game updates |
+| Script | Where | Purpose |
+|--------|-------|---------|
+| `scripts/host-install-kvm.sh` | Host | Install KVM/QEMU/virt-manager on Ubuntu |
+| `scripts/host-create-vm.sh` | Host | Create the Windows 11 VM via CLI |
+| `scripts/vm-setup-ssh.ps1` | VM | Enable OpenSSH, fix admin key auth, configure firewall |
+| `scripts/vm-extract-minecraft.ps1` | VM | Decrypt and copy Minecraft files (robocopy + package context) |
+| `scripts/host-copy-from-vm.sh` | Host | SSH into VM, extract game files, SCP to host |
+| `scripts/setup.sh` | Host | Set up XCurl, SSL certs, GDK DLLs, and Lutris config |
+| `scripts/launch.sh` | Host | Launch Minecraft directly via GDK-Proton |
+| `scripts/update-xcurl.sh` | Host | Re-download XCurl.dll after game updates |
 
 ---
 
@@ -88,82 +88,97 @@ Use `virt-manager` (GUI) or the CLI script:
 | Chipset | Q35 |
 | Firmware | UEFI: `/usr/share/OVMF/OVMF_CODE_4M.ms.fd` (Secure Boot) |
 | CPU | Copy host configuration (host-passthrough), 4+ cores |
-| RAM | 8192 MiB minimum (16384 recommended) |
-| Disk | 80 GiB, VirtIO bus |
-| NIC | virtio |
+| RAM | 4096 MiB minimum (8192 recommended) |
+| Disk | 40+ GiB, SATA or VirtIO bus |
+| NIC | e1000e or virtio |
 | TPM | Emulated, TIS model, version 2.0 |
-| Extra CDROM | Add VirtIO drivers ISO |
 
-During Windows install, when no disk is found:
-1. Click "Load driver"
-2. Browse VirtIO CDROM → `vioscsi\w11\amd64`
-3. Select the driver → disk appears
+> **Note:** VirtIO disk/NIC are faster but require loading drivers during Windows install
+> (browse VirtIO CDROM → `vioscsi\w11\amd64` when no disk is found).
+> SATA + e1000e work out of the box with no extra drivers.
 
-After install, open VirtIO CDROM in Explorer and run `virtio-win-gt-x64.msi` to install all drivers.
+After install, install the [virtio-win guest tools](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso) inside the VM for best performance (open the ISO in Explorer, run `virtio-win-gt-x64.msi`).
 
-### 1.4 Set Up Shared Folder (virtiofs)
+### 1.4 File Transfer Method
 
-**Shut down the VM**, then in virt-manager:
+We use **SSH + SCP** to copy game files from the VM (see Parts 2 and 3). This is the most reliable method because Xbox App games are encrypted at rest and need special handling.
 
-1. Memory → check **"Enable shared memory"**
-2. Add Hardware → Filesystem:
-   - Driver: **virtiofs**
-   - Source path: `/home/<user>/vmshare`
-   - Target path: `vmshare`
+**Alternative: virtiofs shared folder** (optional, more setup):
 
-**Inside Windows 11:**
-
-1. Install [WinFSP](https://github.com/winfsp/winfsp/releases) (the `.msi`, select "Core" component)
-2. Reboot
-3. Open Services (`services.msc`) → find "VirtIO-FS Service" → set to Automatic → Start
+1. Install `virtiofsd` on the host: `sudo apt install virtiofsd`
+2. Shut down the VM, then in virt-manager:
+   - Memory → check **"Enable shared memory"**
+   - Add Hardware → Filesystem: Driver=virtiofs, Source=`/home/<user>/vmshare`, Target=`vmshare`
+3. Inside Windows: install [WinFSP](https://github.com/winfsp/winfsp/releases), reboot, start "VirtIO-FS Service" in `services.msc`
 4. The shared folder appears as a new drive letter
+
+> **Note:** Even with virtiofs, you still need `Invoke-CommandInDesktopPackage` to decrypt the game files — direct copies from the game directory will be encrypted/access-denied.
 
 ---
 
 ## Part 2: Set Up SSH on Windows 11 VM
 
+SSH is how we extract and copy game files from the VM. Run `scripts/vm-setup-ssh.ps1` in an **elevated PowerShell** inside the VM, or follow these manual steps:
+
 ### 2.1 Enable OpenSSH Server
 
-Run inside the Windows 11 VM (elevated PowerShell), or copy the script to the VM:
-
 ```powershell
-# Install OpenSSH Server
+# Install OpenSSH Server (takes a few minutes to download)
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
 
 # Start and auto-start
 Start-Service sshd
 Set-Service -Name sshd -StartupType 'Automatic'
 
-# Set PowerShell as default SSH shell
-New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell `
-    -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" `
-    -PropertyType String -Force
-
-# Ensure firewall rule exists
-if (!(Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue)) {
-    New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' `
-        -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
-}
+# Firewall rule
+New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server' `
+    -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
 ```
 
-See `scripts/vm-setup-ssh.ps1` for the full script.
+### 2.2 Fix SSH Key Auth for Admin Users
 
-### 2.2 Find the VM's IP Address
+By default, Windows OpenSSH uses a separate `administrators_authorized_keys` file for admin accounts, which breaks normal `~/.ssh/authorized_keys`. **This must be fixed:**
 
-From the Ubuntu host:
+Open `C:\ProgramData\ssh\sshd_config` in Notepad and **comment out** these two lines at the bottom:
+
+```
+#Match Group administrators
+#       AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys
+```
+
+Then restart sshd:
+
+```powershell
+Restart-Service sshd
+```
+
+### 2.3 Set Up SSH Keys
+
+On the **Ubuntu host**:
 
 ```bash
-sudo virsh domifaddr win11 --source agent
-# Or:
-sudo virsh net-dhcp-leases default
+# Generate a key (if you don't have one)
+ssh-keygen -t ed25519
+
+# Find the VM's IP
+virsh domifaddr <vm-name>
+# Or: virsh net-dhcp-leases default
 ```
 
 The IP is typically `192.168.122.x` with the default NAT network.
 
-### 2.3 Test SSH Connection
+In the **Windows VM** (PowerShell):
+
+```powershell
+mkdir C:\Users\<user>\.ssh -Force
+# Paste your public key (~/.ssh/id_ed25519.pub contents) into:
+notepad C:\Users\<user>\.ssh\authorized_keys
+```
+
+### 2.4 Test SSH Connection
 
 ```bash
-ssh YourWindowsUser@192.168.122.xxx
+ssh <windows-user>@192.168.122.xxx "echo connected"
 ```
 
 ---
@@ -176,33 +191,36 @@ ssh YourWindowsUser@192.168.122.xxx
 - Game launched at least once
 - SSH working (Part 2)
 
-### 3.2 Run Extraction Remotely
+### 3.2 Why Extraction is Needed
+
+Xbox App games are **encrypted at rest**. You cannot simply copy files from `C:\XboxGames\` or `C:\Program Files\WindowsApps\` — the exe will be unreadable and other files may be access-denied.
+
+The workaround is `Invoke-CommandInDesktopPackage`, which runs a command inside the app's sandbox where files are transparently decrypted:
+
+1. **robocopy** all game files to a user-accessible staging directory
+2. **copy** the exe separately (robocopy gets the encrypted version; the exe must be copied inside the package context to get the decrypted version)
+
+### 3.3 Automated Extraction
+
+From the **Ubuntu host** (does everything via SSH):
 
 ```bash
-./scripts/host-copy-from-vm.sh WindowsUser 192.168.122.xxx
+./scripts/host-copy-from-vm.sh <windows-user> <vm-ip>
 ```
 
-Or manually via SSH:
+Or run `vm-extract-minecraft.ps1` **inside the VM** (elevated PowerShell), then SCP the files:
+
+```powershell
+# In the VM:
+.\vm-extract-minecraft.ps1
+```
 
 ```bash
-# Find the game install path
-ssh User@VM_IP "(Get-AppxPackage Microsoft.MinecraftUWP).InstallLocation"
-
-# Decrypt the exe
-ssh User@VM_IP 'Invoke-CommandInDesktopPackage -PackageFamilyName "Microsoft.MinecraftUWP_8wekyb3d8bbwe" -AppId "Game" -Command "cmd.exe" -Args "/C copy `"$((Get-AppxPackage Microsoft.MinecraftUWP).InstallLocation)\Minecraft.Windows.exe`" `"$ENV:USERPROFILE\Desktop\Minecraft.Windows.exe`""'
-
-# Copy files via the shared folder (if virtiofs is set up)
-ssh User@VM_IP '$src = (Get-AppxPackage Microsoft.MinecraftUWP).InstallLocation; Copy-Item -Path "$src\*" -Destination "Z:\minecraft-bedrock\" -Recurse -Force; Copy-Item -Path "$ENV:USERPROFILE\Desktop\Minecraft.Windows.exe" -Destination "Z:\minecraft-bedrock\Minecraft.Windows.exe" -Force'
+# Then from Ubuntu:
+scp -r <user>@<vm-ip>:C:/Users/<user>/minecraft/* ~/vmshare/minecraft-bedrock/
 ```
 
-Or copy via SCP if no shared folder:
-
-```bash
-scp -r User@VM_IP:"C:/XboxGames/Minecraft\ for\ Windows/Content/*" ~/vmshare/minecraft-bedrock/
-scp User@VM_IP:C:/Users/User/Desktop/Minecraft.Windows.exe ~/vmshare/minecraft-bedrock/
-```
-
-### 3.3 Verify the EXE is Decrypted
+### 3.4 Verify the EXE is Decrypted
 
 ```bash
 file ~/vmshare/minecraft-bedrock/Minecraft.Windows.exe
@@ -219,21 +237,36 @@ If it says `data` instead of `PE32+`, the exe is still encrypted — re-run the 
 
 ## Part 4: Set Up and Launch on Ubuntu
 
-### 4.1 Run the Setup Script
+### 4.1 Install Lutris (Flatpak)
+
+```bash
+flatpak install -y flathub net.lutris.Lutris
+```
+
+### 4.2 Install GDK-Proton
+
+Download the latest release from [GDK-Proton releases](https://github.com/Weather-OS/GDK-Proton/releases) and extract:
+
+```bash
+mkdir -p ~/.steam/root/compatibilitytools.d/
+tar xf GDK-Proton10-32.tar.gz -C ~/.steam/root/compatibilitytools.d/
+```
+
+### 4.3 Run the Setup Script
 
 ```bash
 ./scripts/setup.sh
 ```
 
 This will:
-1. Replace `XCurl.dll` with the mingw curl build
-2. Download SSL certificates
-3. Copy `xgameruntime.dll` to the game directory
+1. Replace `XCurl.dll` with the mingw curl build (for network functionality)
+2. Download SSL certificates (for HTTPS)
+3. Copy `xgameruntime.dll` and `xgameruntime.dll.threading` to the game directory
 4. Install `GameInputRedist.msi` into the Wine prefix
-5. Symlink GDK-Proton into Lutris
+5. Symlink GDK-Proton into Lutris's runner directory
 6. Create the Lutris game config and database entry
 
-### 4.2 Launch
+### 4.4 Launch
 
 **Via Lutris:**
 Open Lutris (Flatpak) and click Play on "Minecraft Bedrock"
@@ -271,11 +304,19 @@ Check `~/.var/app/net.lutris.Lutris/cache/lutris/lutris.log`
 ### Encrypted EXE
 Re-run `Invoke-CommandInDesktopPackage` on the Windows VM — see Part 3
 
+### VM IP address not found
+```bash
+virsh domifaddr <vm-name>
+# Or check DHCP leases:
+virsh net-dhcp-leases default
+```
+
 ## References
 
 - [Minecraft Wiki - Playing on Linux](https://minecraft.wiki/w/Tutorial:Playing_Minecraft_on_Linux)
 - [GDK-Proton (GitHub)](https://github.com/Weather-OS/GDK-Proton)
 - [WineGDK (GitHub)](https://github.com/Weather-OS/WineGDK)
 - [MCGDKLauncher (GitHub)](https://github.com/oliik2013/MCGDKLauncher)
+- [Bedrock Native Modding Wiki - GDK](https://bedrock-native-modding.github.io/wiki/platforms/gdk.html)
 - [Microsoft - Download Windows 11](https://www.microsoft.com/en-us/software-download/windows11)
 - [VirtIO Windows Drivers](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso)
