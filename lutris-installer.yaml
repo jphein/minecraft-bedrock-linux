@@ -30,7 +30,7 @@ script:
   require-binaries: curl, zstd, tar
 
   files:
-  - game_exe: "N/A:Select Minecraft.Windows.exe from your extracted game directory"
+  - game_exe: "N/A:Select any file inside your extracted Minecraft Bedrock game directory"
 
   installer:
     # Copy game files into install directory
