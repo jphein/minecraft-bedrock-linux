@@ -8,13 +8,13 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 >
 > - **No Microsoft account login** — XUser is not implemented in WineGDK, so you **cannot sign in**
 > - **No Realms, no featured servers** — these require Microsoft authentication
-> - **No online multiplayer** (without workaround) — use [ProxyPass](https://minecraft.wiki/w/Tutorial:Playing_Minecraft_on_Linux) to proxy external servers as LAN
+> - **No online multiplayer** (without workaround) — LAN play works natively (same version as Windows); for external servers, use [ProxyPass](https://minecraft.wiki/w/Tutorial:Playing_Minecraft_on_Linux) to proxy them as LAN
 > - **File picker crashes the game** — import worlds manually by extracting `.mcworld` files into `com.mojang/minecraftWorlds/`
 > - **Wine prefix can corrupt on crashes** — back up your saves regularly
 > - **Game may crash unexpectedly** — this is not a stable, supported configuration
 >
 > If you only need Java Edition, it runs **natively** on Linux — just use [Prism Launcher](https://prismlauncher.org/).
-> For a more stable Bedrock experience (without ray tracing), consider [mcpelauncher](https://mcpelauncher.readthedocs.io/) (Android-based).
+> [mcpelauncher](https://mcpelauncher.readthedocs.io/) (Android-based) is **not a viable alternative** — it cannot run the latest Bedrock versions, so cross-play with Android/console/Windows players fails due to version mismatch.
 
 ## Overview
 
@@ -317,7 +317,7 @@ This removes the game directory, Wine prefix, GDK-Proton, Lutris configs, and da
 
 - **No Microsoft account login** — XUser is not implemented in WineGDK
 - **No Realms or featured servers** — requires Microsoft auth
-- **Multiplayer workaround** — use [ProxyPass](https://minecraft.wiki/w/Tutorial:Playing_Minecraft_on_Linux) to proxy external servers as LAN
+- **Multiplayer** — LAN play works natively; for external servers, use [ProxyPass](https://minecraft.wiki/w/Tutorial:Playing_Minecraft_on_Linux) to proxy them as LAN
 - **File picker crashes** — import worlds manually by extracting `.mcworld` files into `com.mojang/minecraftWorlds/`
 - **Wine prefix corruption** — crashes can corrupt the prefix; back up saves regularly
 
