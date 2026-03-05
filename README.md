@@ -320,3 +320,14 @@ virsh net-dhcp-leases default
 - [Bedrock Native Modding Wiki - GDK](https://bedrock-native-modding.github.io/wiki/platforms/gdk.html)
 - [Microsoft - Download Windows 11](https://www.microsoft.com/en-us/software-download/windows11)
 - [VirtIO Windows Drivers](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso)
+
+## Legal
+
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
+
+**Minecraft** is a registered trademark of Mojang Studios / Microsoft Corporation. This project is not affiliated with, endorsed by, or associated with Mojang or Microsoft. You must own a legitimate copy of Minecraft Bedrock Edition to use this guide.
+
+**Third-party components** downloaded at runtime by the setup scripts:
+- **mingw-w64 curl** ([curl license](https://curl.se/docs/copyright.html)) — replaces XCurl.dll for network functionality
+- **CA certificate bundle** ([Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/)) — from [curl.se/ca](https://curl.se/ca/cacert.pem)
+- **GDK-Proton** ([BSD-3-Clause / Valve Proton license](https://github.com/Weather-OS/GDK-Proton)) — Wine/Proton fork with GDK support
