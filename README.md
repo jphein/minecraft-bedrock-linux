@@ -39,6 +39,7 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | `scripts/setup.sh` | Host | Set up XCurl, SSL certs, GDK DLLs, and Lutris config |
 | `scripts/launch.sh` | Host | Launch Minecraft directly via GDK-Proton |
 | `scripts/update-xcurl.sh` | Host | Re-download XCurl.dll after game updates |
+| `lutris-installer.yaml` | Host | Lutris installer — automates all of Part 4 |
 
 ---
 
@@ -237,13 +238,26 @@ If it says `data` instead of `PE32+`, the exe is still encrypted — re-run the 
 
 ## Part 4: Set Up and Launch on Ubuntu
 
-### 4.1 Install Lutris (Flatpak)
+### Option A: Lutris Installer (recommended)
+
+The Lutris installer automates all of Part 4 — it downloads GDK-Proton, replaces XCurl, sets up SSL certs, copies runtime DLLs, creates the Wine prefix, and configures the game in Lutris.
+
+```bash
+flatpak install -y flathub net.lutris.Lutris
+lutris -i lutris-installer.yaml
+```
+
+Lutris will prompt you to select your extracted Minecraft Bedrock game directory (from Part 3). After installation, launch the game from Lutris.
+
+### Option B: Manual Setup
+
+#### 4.1 Install Lutris (Flatpak)
 
 ```bash
 flatpak install -y flathub net.lutris.Lutris
 ```
 
-### 4.2 Install GDK-Proton
+#### 4.2 Install GDK-Proton
 
 Download the latest release from [GDK-Proton releases](https://github.com/Weather-OS/GDK-Proton/releases) and extract:
 
@@ -252,7 +266,7 @@ mkdir -p ~/.steam/root/compatibilitytools.d/
 tar xf GDK-Proton10-32.tar.gz -C ~/.steam/root/compatibilitytools.d/
 ```
 
-### 4.3 Run the Setup Script
+#### 4.3 Run the Setup Script
 
 ```bash
 ./scripts/setup.sh
@@ -266,7 +280,7 @@ This will:
 5. Symlink GDK-Proton into Lutris's runner directory
 6. Create the Lutris game config and database entry
 
-### 4.4 Launch
+#### 4.4 Launch
 
 **Via Lutris:**
 Open Lutris (Flatpak) and click Play on "Minecraft Bedrock"

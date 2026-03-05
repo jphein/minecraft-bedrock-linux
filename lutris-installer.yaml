@@ -1,0 +1,110 @@
+# Lutris installer for Minecraft Bedrock Edition via GDK-Proton
+#
+# Prerequisites:
+#   - Minecraft Bedrock game files extracted from Windows (see README Parts 1-3)
+#   - The extracted directory must contain Minecraft.Windows.exe
+#
+# Usage:
+#   lutris -i lutris-installer.yaml
+#
+# What this installer does:
+#   1. Copies game files to the Lutris game directory
+#   2. Downloads and installs the GDK-Proton runner
+#   3. Replaces XCurl.dll with mingw curl (for network/marketplace)
+#   4. Downloads SSL CA certificates
+#   5. Copies xgameruntime DLLs from GDK-Proton
+#   6. Creates Wine prefix and installs GameInputRedist
+
+name: Minecraft Bedrock Edition
+game_slug: minecraft-bedrock-edition
+version: "GDK-Proton10 (game files from Windows)"
+slug: minecraft-bedrock-edition-gdk-proton
+runner: wine
+
+script:
+  require-binaries: curl, zstd, tar
+
+  files:
+    game_files: "N/A:Select the extracted Minecraft Bedrock game directory (must contain Minecraft.Windows.exe)"
+
+  installer:
+    # Copy game files into install directory
+    - merge:
+        src: game_files
+        dst: $GAMEDIR/game
+
+    # Download and extract GDK-Proton
+    - execute:
+        command: >-
+          if [ ! -d "$GAMEDIR/GDK-Proton10-32" ]; then
+          curl -sL "https://github.com/Weather-OS/GDK-Proton/releases/download/release10-32/GDK-Proton10-32.tar.gz"
+          | tar xz -C "$GAMEDIR";
+          fi
+
+    # Register GDK-Proton as a Lutris Wine runner
+    - execute:
+        command: >-
+          RUNNER_DIR="$HOME/.local/share/lutris/runners/wine" &&
+          if [ -d "$HOME/.var/app/net.lutris.Lutris" ]; then
+          RUNNER_DIR="$HOME/.var/app/net.lutris.Lutris/data/lutris/runners/wine";
+          fi &&
+          mkdir -p "$RUNNER_DIR" &&
+          ln -sf "$GAMEDIR/GDK-Proton10-32" "$RUNNER_DIR/GDK-Proton10-32"
+
+    # Replace XCurl.dll with mingw curl (enables network/marketplace)
+    - execute:
+        command: >-
+          WORK=$(mktemp -d) &&
+          cd "$WORK" &&
+          curl -sLO "https://repo.msys2.org/mingw/mingw64/mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar.zst" &&
+          zstd -d mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar.zst &&
+          tar xf mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar &&
+          cp mingw64/bin/libcurl-4.dll "$GAMEDIR/game/XCurl.dll" &&
+          rm -rf "$WORK"
+
+    # Download SSL CA certificates (for HTTPS in-game)
+    - execute:
+        command: >-
+          mkdir -p "$GAMEDIR/etc/ssl/certs" &&
+          curl -sL -o "$GAMEDIR/etc/ssl/certs/ca-bundle.crt" "https://curl.se/ca/cacert.pem"
+
+    # Copy xgameruntime DLLs from GDK-Proton to game directory
+    - execute:
+        command: >-
+          cp "$GAMEDIR/GDK-Proton10-32/files/lib/wine/x86_64-windows/xgameruntime.dll" "$GAMEDIR/game/" &&
+          cp "$GAMEDIR/GDK-Proton10-32/files/lib/wine/x86_64-windows/xgameruntime.dll.threading" "$GAMEDIR/game/"
+
+    # Create Wine prefix and install GameInputRedist
+    - execute:
+        command: >-
+          mkdir -p "$GAMEDIR/prefix/pfx" &&
+          mkdir -p "$HOME/.steam/root" &&
+          if [ -f "$GAMEDIR/game/Installers/GameInputRedist.msi" ]; then
+          WINEPREFIX="$GAMEDIR/prefix/pfx"
+          "$GAMEDIR/GDK-Proton10-32/files/bin/wine64"
+          msiexec /i "$GAMEDIR/game/Installers/GameInputRedist.msi" /qn 2>/dev/null || true;
+          fi
+
+  game:
+    exe: game/Minecraft.Windows.exe
+    prefix: $GAMEDIR/prefix
+    working_dir: $GAMEDIR/game
+
+  wine:
+    version: GDK-Proton10-32
+    runner_type: proton
+
+  system:
+    env:
+      STEAM_COMPAT_DATA_PATH: $GAMEDIR/prefix
+      STEAM_COMPAT_CLIENT_INSTALL_PATH: $HOME/.steam/root
+      PROTONPATH: $GAMEDIR/GDK-Proton10-32
+      GAMEID: minecraft-bedrock
+      STORE: none
+
+  install_complete_text: >-
+    Minecraft Bedrock has been installed! Launch it from Lutris.
+
+    Note: This is an experimental setup with known limitations -
+    no Microsoft account login, no Realms, and no featured servers.
+    See the project README for workarounds.
