@@ -32,15 +32,19 @@ if [ ! -d "$GDK_PROTON_DIR" ]; then
 fi
 
 # 1. Replace XCurl.dll
+# Downloads mingw curl from MSYS2 repo. Update version as needed:
+# https://repo.msys2.org/mingw/mingw64/ (search for mingw-w64-x86_64-curl)
+CURL_PKG="mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar.zst"
+CURL_URL="https://repo.msys2.org/mingw/mingw64/$CURL_PKG"
 echo "[1/6] Replacing XCurl.dll with mingw curl..."
-TMPDIR=$(mktemp -d)
-cd "$TMPDIR"
-curl -sLO https://repo.msys2.org/mingw/mingw64/mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar.zst
-zstd -d mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar.zst
-tar xf mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar
+WORK_DIR=$(mktemp -d)
+cd "$WORK_DIR"
+curl -sLO "$CURL_URL"
+zstd -d "$CURL_PKG"
+tar xf "${CURL_PKG%.zst}"
 cp "$GAME_DIR/XCurl.dll" "$GAME_DIR/XCurl.dll.bak" 2>/dev/null || true
 cp mingw64/bin/libcurl-4.dll "$GAME_DIR/XCurl.dll"
-rm -rf "$TMPDIR"
+rm -rf "$WORK_DIR"
 echo "  Done."
 
 # 2. SSL certificates
@@ -101,10 +105,12 @@ if command -v sqlite3 &>/dev/null && [ -f "$LUTRIS_DB" ]; then
     # Check if already exists
     EXISTS=$(sqlite3 "$LUTRIS_DB" "SELECT COUNT(*) FROM games WHERE slug='minecraft-bedrock';")
     if [ "$EXISTS" -eq 0 ]; then
+        # Escape single quotes in paths for SQL safety
+        SAFE_GAME_DIR="${GAME_DIR//\'/\'\'}"
         sqlite3 "$LUTRIS_DB" \
             "INSERT INTO games (name, slug, runner, executable, directory, installed, configpath, platform) \
              VALUES ('Minecraft Bedrock', 'minecraft-bedrock', 'wine', \
-             '$GAME_DIR/Minecraft.Windows.exe', '$GAME_DIR', 1, 'minecraft-bedrock', 'windows');"
+             '${SAFE_GAME_DIR}/Minecraft.Windows.exe', '${SAFE_GAME_DIR}', 1, 'minecraft-bedrock', 'windows');"
         echo "  Added to Lutris database."
     else
         echo "  Already in Lutris database."

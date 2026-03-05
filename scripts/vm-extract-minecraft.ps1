@@ -85,7 +85,11 @@ Invoke-CommandInDesktopPackage `
 Start-Sleep -Seconds 5
 
 if (Test-Path $decryptedExe) {
-    $bytes = [System.IO.File]::ReadAllBytes($decryptedExe)
+    # Read only the first 2 bytes to check for MZ header (not the entire 160MB file)
+    $stream = [System.IO.File]::OpenRead($decryptedExe)
+    $bytes = New-Object byte[] 2
+    $stream.Read($bytes, 0, 2) | Out-Null
+    $stream.Close()
     if ($bytes[0] -eq 0x4D -and $bytes[1] -eq 0x5A) {
         Write-Host "  Decrypted successfully (MZ header verified)."
         Copy-Item -Path $decryptedExe -Destination "$Destination\Minecraft.Windows.exe" -Force
@@ -103,7 +107,10 @@ if (Test-Path $decryptedExe) {
 Write-Host "[4/4] Verifying..."
 $exePath = "$Destination\Minecraft.Windows.exe"
 if (Test-Path $exePath) {
-    $exeBytes = [System.IO.File]::ReadAllBytes($exePath)[0..1]
+    $stream = [System.IO.File]::OpenRead($exePath)
+    $exeBytes = New-Object byte[] 2
+    $stream.Read($exeBytes, 0, 2) | Out-Null
+    $stream.Close()
     if ($exeBytes[0] -eq 0x4D -and $exeBytes[1] -eq 0x5A) {
         $size = (Get-Item $exePath).Length / 1MB
         Write-Host "  Minecraft.Windows.exe: $([math]::Round($size, 1)) MB (decrypted, valid PE)" -ForegroundColor Green
@@ -123,7 +130,8 @@ Write-Host ""
 Write-Host "=== Extraction Complete ===" -ForegroundColor Green
 Write-Host "Game files are at: $Destination"
 Write-Host ""
-Write-Host "Next steps:"
-Write-Host "  1. Transfer files to your Ubuntu host via SCP:"
-Write-Host "     scp -r $env:USERNAME@<VM_IP>:C:/Users/$env:USERNAME/minecraft/* ~/vmshare/minecraft-bedrock/"
-Write-Host "  2. Run ./scripts/setup.sh on the Ubuntu host"
+Write-Host "Next steps (run these on your Ubuntu host):"
+Write-Host "  1. Transfer files via SCP:"
+Write-Host "     scp -r <user>@<VM_IP>:C:/Users/<user>/minecraft/* ~/vmshare/minecraft-bedrock/"
+Write-Host "  2. Run the setup script:"
+Write-Host "     ./scripts/setup.sh"
