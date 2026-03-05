@@ -14,6 +14,10 @@
 #   4. Downloads SSL CA certificates
 #   5. Copies xgameruntime DLLs from GDK-Proton
 #   6. Creates Wine prefix and installs GameInputRedist
+#
+# To update versions, change these values and the references below:
+#   GDK-Proton: https://github.com/Weather-OS/GDK-Proton/releases
+#   mingw curl: https://repo.msys2.org/mingw/mingw64/ (search mingw-w64-x86_64-curl)
 
 name: Minecraft Bedrock Edition
 game_slug: minecraft-bedrock-edition
@@ -23,6 +27,11 @@ runner: wine
 
 script:
   require-binaries: curl, zstd, tar
+
+  variables:
+    GDK_VERSION: GDK-Proton10-32
+    GDK_RELEASE_TAG: release10-32
+    CURL_PKG: mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar.zst
 
   files:
     game_files: "N/A:Select the extracted Minecraft Bedrock game directory (must contain Minecraft.Windows.exe)"
@@ -36,8 +45,8 @@ script:
     # Download and extract GDK-Proton
     - execute:
         command: >-
-          if [ ! -d "$GAMEDIR/GDK-Proton10-32" ]; then
-          curl -sL "https://github.com/Weather-OS/GDK-Proton/releases/download/release10-32/GDK-Proton10-32.tar.gz"
+          if [ ! -d "$GAMEDIR/$GDK_VERSION" ]; then
+          curl -sL "https://github.com/Weather-OS/GDK-Proton/releases/download/$GDK_RELEASE_TAG/$GDK_VERSION.tar.gz"
           | tar xz -C "$GAMEDIR";
           fi
 
@@ -49,16 +58,17 @@ script:
           RUNNER_DIR="$HOME/.var/app/net.lutris.Lutris/data/lutris/runners/wine";
           fi &&
           mkdir -p "$RUNNER_DIR" &&
-          ln -sf "$GAMEDIR/GDK-Proton10-32" "$RUNNER_DIR/GDK-Proton10-32"
+          ln -sf "$GAMEDIR/$GDK_VERSION" "$RUNNER_DIR/$GDK_VERSION"
 
     # Replace XCurl.dll with mingw curl (enables network/marketplace)
     - execute:
         command: >-
           WORK=$(mktemp -d) &&
           cd "$WORK" &&
-          curl -sLO "https://repo.msys2.org/mingw/mingw64/mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar.zst" &&
-          zstd -d mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar.zst &&
-          tar xf mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar &&
+          PKG="$CURL_PKG" &&
+          curl -sLO "https://repo.msys2.org/mingw/mingw64/$PKG" &&
+          zstd -d "$PKG" &&
+          tar xf "${PKG%.zst}" &&
           cp mingw64/bin/libcurl-4.dll "$GAMEDIR/game/XCurl.dll" &&
           rm -rf "$WORK"
 
@@ -71,8 +81,8 @@ script:
     # Copy xgameruntime DLLs from GDK-Proton to game directory
     - execute:
         command: >-
-          cp "$GAMEDIR/GDK-Proton10-32/files/lib/wine/x86_64-windows/xgameruntime.dll" "$GAMEDIR/game/" &&
-          cp "$GAMEDIR/GDK-Proton10-32/files/lib/wine/x86_64-windows/xgameruntime.dll.threading" "$GAMEDIR/game/"
+          cp "$GAMEDIR/$GDK_VERSION/files/lib/wine/x86_64-windows/xgameruntime.dll" "$GAMEDIR/game/" &&
+          cp "$GAMEDIR/$GDK_VERSION/files/lib/wine/x86_64-windows/xgameruntime.dll.threading" "$GAMEDIR/game/"
 
     # Create Wine prefix and install GameInputRedist
     - execute:
@@ -81,7 +91,7 @@ script:
           mkdir -p "$HOME/.steam/root" &&
           if [ -f "$GAMEDIR/game/Installers/GameInputRedist.msi" ]; then
           WINEPREFIX="$GAMEDIR/prefix/pfx"
-          "$GAMEDIR/GDK-Proton10-32/files/bin/wine64"
+          "$GAMEDIR/$GDK_VERSION/files/bin/wine64"
           msiexec /i "$GAMEDIR/game/Installers/GameInputRedist.msi" /qn 2>/dev/null || true;
           fi
 
@@ -91,14 +101,14 @@ script:
     working_dir: $GAMEDIR/game
 
   wine:
-    version: GDK-Proton10-32
+    version: $GDK_VERSION
     runner_type: proton
 
   system:
     env:
       STEAM_COMPAT_DATA_PATH: $GAMEDIR/prefix
       STEAM_COMPAT_CLIENT_INSTALL_PATH: $HOME/.steam/root
-      PROTONPATH: $GAMEDIR/GDK-Proton10-32
+      PROTONPATH: $GAMEDIR/$GDK_VERSION
       GAMEID: minecraft-bedrock
       STORE: none
 
