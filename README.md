@@ -40,6 +40,7 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | `scripts/launch.sh` | Host | Launch Minecraft directly via GDK-Proton |
 | `scripts/update-xcurl.sh` | Host | Re-download XCurl.dll after game updates |
 | `lutris-installer.yaml` | Host | Lutris installer — automates all of Part 4 |
+| `scripts/uninstall.sh` | Host | Remove all Minecraft Bedrock files and Lutris entries |
 
 ---
 
@@ -299,6 +300,16 @@ Open Lutris (Flatpak) and click Play on "Minecraft Bedrock"
 - `STEAM_COMPAT_DATA_PATH` — path to Wine prefix
 - `STEAM_COMPAT_CLIENT_INSTALL_PATH` — path to `.steam/root`
 - `PROTONPATH` — path to GDK-Proton
+
+---
+
+## Uninstalling
+
+```bash
+./scripts/uninstall.sh
+```
+
+This removes the game directory, Wine prefix, GDK-Proton, Lutris configs, and database entries. It handles both Lutris installer and manual `setup.sh` installations. Source game files in `~/vmshare/` are kept as a backup — delete them manually if no longer needed.
 
 ---
 
