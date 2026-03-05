@@ -244,10 +244,15 @@ The Lutris installer automates all of Part 4 — it downloads GDK-Proton, replac
 
 ```bash
 flatpak install -y flathub net.lutris.Lutris
-lutris -i lutris-installer.yaml
+flatpak run net.lutris.Lutris -i https://raw.githubusercontent.com/jphein/minecraft-bedrock-linux/master/lutris-installer.yaml
 ```
 
-Lutris will prompt you to select your extracted Minecraft Bedrock game directory (from Part 3). After installation, launch the game from Lutris.
+Or if you cloned this repo:
+```bash
+flatpak run net.lutris.Lutris -i lutris-installer.yaml
+```
+
+Lutris will prompt you to select any file inside your extracted game directory (from Part 3). After installation, launch the game from Lutris.
 
 ### Option B: Manual Setup
 
