@@ -323,11 +323,24 @@ When a new Minecraft Bedrock version comes out, update it in the Xbox App on the
 ```
 
 This will:
-1. Back up your world saves
-2. Re-extract the updated game files from the VM
-3. Re-apply XCurl.dll, SSL certs, and xgameruntime DLLs
-4. Re-install GameInputRedist
-5. Restore your world saves
+1. **Update GDK-Proton** — downloads the latest release from GitHub
+2. **Re-extract game files** — decrypts and copies the updated build from the VM
+3. **Update XCurl.dll** — auto-detects and downloads the latest mingw curl from MSYS2
+4. **Refresh SSL certificates** — downloads the latest Mozilla CA bundle
+5. **Copy xgameruntime DLLs** — from the updated GDK-Proton
+6. **Re-install GameInputRedist** — into the Wine prefix
+
+World saves are automatically backed up before extraction and restored afterward.
+
+**Partial updates** (skip steps you don't need):
+
+```bash
+# Skip VM extraction (just re-setup with existing game files)
+SKIP_VM=1 ./scripts/update.sh <windows-user> <vm-ip>
+
+# Skip GDK-Proton update (keep current version)
+SKIP_GDK_UPDATE=1 ./scripts/update.sh <windows-user> <vm-ip>
+```
 
 ---
 
