@@ -1,4 +1,10 @@
+.claude/
 *.exe
 *.dll
 *.bak
 prefix/
+.env
+__pycache__/
+*.pyc
+*.swp
+*~
