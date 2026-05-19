@@ -1,0 +1,19 @@
+{
+    "format_version": "1.10.0",
+    "minecraft:client_entity": {
+        "description": {
+            "identifier": "little:bamboo",
+            "materials": { "default": "entity_alphatest" },
+            "textures": {
+                "default": "textures/entity/bamboo/bamboo"
+            },
+            "geometry": { "default": "geometry.panda" },
+            "render_controllers": ["controller.render.little_bamboo"],
+            "animations": {
+                "walk": "animation.quadruped.walk",
+                "look_at_target": "animation.common.look_at_target"
+            },
+            "scripts": { "animate": ["look_at_target"] }
+        }
+    }
+}

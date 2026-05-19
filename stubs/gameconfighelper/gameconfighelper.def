@@ -1,0 +1,3 @@
+LIBRARY GameConfigHelper
+EXPORTS
+    OpenGameConfigForPackage

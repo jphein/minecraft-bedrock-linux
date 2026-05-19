@@ -1,0 +1,36 @@
+{
+    "format_version": 2,
+    "header": {
+        "name": "Little Friends",
+        "description": "Three adorable companion mobs that help you explore, build, and survive!",
+        "uuid": "a1b2c3d4-1111-2222-3333-aabbccddeeff",
+        "version": [1, 0, 0],
+        "min_engine_version": [1, 21, 0]
+    },
+    "modules": [
+        {
+            "description": "Little Friends behavior data",
+            "type": "data",
+            "uuid": "a1b2c3d4-4444-5555-6666-aabbccddeeff",
+            "version": [1, 0, 0]
+        },
+        {
+            "description": "Little Friends scripts",
+            "type": "script",
+            "language": "javascript",
+            "uuid": "a1b2c3d4-7777-8888-9999-aabbccddeeff",
+            "version": [1, 0, 0],
+            "entry": "scripts/main.js"
+        }
+    ],
+    "dependencies": [
+        {
+            "uuid": "b2c3d4e5-1111-2222-3333-ffeeddccbbaa",
+            "version": [1, 0, 0]
+        },
+        {
+            "module_name": "@minecraft/server",
+            "version": "1.16.0"
+        }
+    ]
+}

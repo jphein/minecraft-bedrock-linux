@@ -6,11 +6,12 @@
 # Updates everything needed to run the latest Minecraft Bedrock version:
 #
 #   1. GDK-Proton    — downloads the latest release from GitHub
-#   2. Game files    — re-extracts decrypted files from the Windows VM
-#   3. XCurl.dll     — downloads the latest mingw curl from MSYS2
-#   4. SSL certs     — refreshes the Mozilla CA bundle
-#   5. Runtime DLLs  — copies xgameruntime.dll from the updated GDK-Proton
-#   6. GameInputRedist — re-installs the MSI into the Wine prefix
+#   2. DLL patches   — re-applies ntdll.dll WNF stubs (required after GDK-Proton update)
+#   3. Game files    — re-extracts decrypted files from the Windows VM
+#   4. XCurl.dll     — downloads the latest mingw curl from MSYS2
+#   5. SSL certs     — refreshes the Mozilla CA bundle
+#   6. Runtime DLLs  — copies xgameruntime.dll from the updated GDK-Proton
+#   7. GameInputRedist — re-installs the MSI into the Wine prefix
 #
 # World saves are backed up before extraction and restored afterward.
 #
@@ -35,13 +36,14 @@ set -euo pipefail
 WIN_USER="${1:?Usage: $0 <windows-user> <vm-ip>}"
 VM_IP="${2:?Usage: $0 <windows-user> <vm-ip>}"
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GAME_DIR="${GAME_DIR:-$HOME/vmshare/minecraft-bedrock}"
 PREFIX_DIR="${PREFIX_DIR:-$HOME/Games/MinecraftBedrock/prefix}"
 COMPAT_DIR="$HOME/.steam/root/compatibilitytools.d"
 SKIP_VM="${SKIP_VM:-0}"
 SKIP_GDK_UPDATE="${SKIP_GDK_UPDATE:-0}"
 
-TOTAL_STEPS=6
+TOTAL_STEPS=7
 STEP=0
 
 next_step() {
@@ -95,7 +97,18 @@ else
     fi
 fi
 
-# --- Step 2: Back up saves and re-extract game files from VM ---------------
+# --- Step 2: Re-apply DLL patches to GDK-Proton ----------------------------
+
+next_step "Re-applying DLL patches to GDK-Proton..."
+echo "  Running apply-patches.sh (ntdll.dll WNF stubs, etc.)..."
+PROTON_DIR="$GDK_PROTON_DIR" "$SCRIPT_DIR/apply-patches.sh"
+
+echo ""
+echo "  Running verify-patches.sh..."
+PROTON_DIR="$GDK_PROTON_DIR" PREFIX_DIR="$PREFIX_DIR" GAME_DIR="$GAME_DIR" \
+    "$SCRIPT_DIR/verify-patches.sh" || echo "  (Some checks may fail until setup completes)"
+
+# --- Step 3: Back up saves and re-extract game files from VM ---------------
 
 next_step "Extracting game files from VM..."
 
@@ -115,10 +128,10 @@ else
         OLD_SIZE=$(stat -c%s "$GAME_DIR/Minecraft.Windows.exe" 2>/dev/null || echo "?")
         echo "  Existing exe: $OLD_SIZE bytes"
     fi
-    DEST_DIR="$GAME_DIR" ./scripts/host-copy-from-vm.sh "$WIN_USER" "$VM_IP"
+    DEST_DIR="$GAME_DIR" "$SCRIPT_DIR/host-copy-from-vm.sh" "$WIN_USER" "$VM_IP"
 fi
 
-# --- Step 3: Replace XCurl.dll with latest mingw curl ----------------------
+# --- Step 4: Replace XCurl.dll with latest mingw curl ----------------------
 
 next_step "Updating XCurl.dll (latest mingw curl from MSYS2)..."
 
@@ -145,7 +158,7 @@ rm -rf "$WORK_DIR"
 cd - >/dev/null
 echo "  Done."
 
-# --- Step 4: Refresh SSL certificates -------------------------------------
+# --- Step 5: Refresh SSL certificates -------------------------------------
 
 next_step "Refreshing SSL CA certificates..."
 SSL_DIR="$(dirname "$GAME_DIR")/etc/ssl/certs"
@@ -153,7 +166,7 @@ mkdir -p "$SSL_DIR"
 curl -sL -o "$SSL_DIR/ca-bundle.crt" https://curl.se/ca/cacert.pem
 echo "  Updated: $SSL_DIR/ca-bundle.crt"
 
-# --- Step 5: Copy xgameruntime DLLs from GDK-Proton -----------------------
+# --- Step 6: Copy xgameruntime DLLs from GDK-Proton -----------------------
 
 next_step "Copying xgameruntime DLLs from GDK-Proton..."
 SRC_DLL_DIR="$GDK_PROTON_DIR/files/lib/wine/x86_64-windows"
@@ -161,7 +174,7 @@ cp "$SRC_DLL_DIR/xgameruntime.dll" "$GAME_DIR/"
 cp "$SRC_DLL_DIR/xgameruntime.dll.threading" "$GAME_DIR/"
 echo "  Copied from: $SRC_DLL_DIR"
 
-# --- Step 6: Re-install GameInputRedist ------------------------------------
+# --- Step 7: Re-install GameInputRedist ------------------------------------
 
 next_step "Installing GameInputRedist..."
 if [ -f "$GAME_DIR/Installers/GameInputRedist.msi" ]; then
@@ -172,6 +185,17 @@ if [ -f "$GAME_DIR/Installers/GameInputRedist.msi" ]; then
     echo "  Done."
 else
     echo "  GameInputRedist.msi not found in game files, skipping."
+fi
+
+# --- Refresh Lutris runner symlink -----------------------------------------
+
+LUTRIS_RUNNER_DIR="$HOME/.var/app/net.lutris.Lutris/data/lutris/runners/wine"
+if [ -d "$HOME/.var/app/net.lutris.Lutris" ]; then
+    echo ""
+    echo "Refreshing Lutris runner symlink..."
+    mkdir -p "$LUTRIS_RUNNER_DIR"
+    ln -sf "$GDK_PROTON_DIR" "$LUTRIS_RUNNER_DIR/$(basename "$GDK_PROTON_DIR")"
+    echo "  Linked: $LUTRIS_RUNNER_DIR/$(basename "$GDK_PROTON_DIR") -> $GDK_PROTON_DIR"
 fi
 
 # --- Restore world saves ---------------------------------------------------
@@ -201,5 +225,9 @@ else
     echo "  Game exe:    WARNING — may still be encrypted, re-run extraction"
 fi
 
+echo ""
+echo "Verifying final state..."
+PROTON_DIR="$GDK_PROTON_DIR" PREFIX_DIR="$PREFIX_DIR" GAME_DIR="$GAME_DIR" \
+    "$SCRIPT_DIR/verify-patches.sh" || true
 echo ""
 echo "Launch with: ./scripts/launch.sh"

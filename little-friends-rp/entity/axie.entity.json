@@ -1,0 +1,20 @@
+{
+    "format_version": "1.10.0",
+    "minecraft:client_entity": {
+        "description": {
+            "identifier": "little:axie",
+            "materials": { "default": "entity_alphatest" },
+            "textures": {
+                "default": "textures/entity/axie/axie"
+            },
+            "geometry": { "default": "geometry.axolotl" },
+            "render_controllers": ["controller.render.little_axie"],
+            "animations": {
+                "idle_floor": "animation.axolotl.idle_floor",
+                "walk_floor": "animation.axolotl.walk_floor",
+                "look_at_target": "animation.common.look_at_target"
+            },
+            "scripts": { "animate": ["look_at_target"] }
+        }
+    }
+}

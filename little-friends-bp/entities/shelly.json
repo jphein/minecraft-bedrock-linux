@@ -1,0 +1,49 @@
+{
+    "format_version": "1.21.0",
+    "minecraft:entity": {
+        "description": {
+            "identifier": "little:shelly",
+            "is_spawnable": false,
+            "is_summonable": true,
+            "is_experimental": false
+        },
+        "component_groups": {
+            "little:tamed": {
+                "minecraft:is_tamed": {},
+                "minecraft:behavior.follow_owner": {
+                    "priority": 2,
+                    "speed_multiplier": 1.5,
+                    "start_distance": 8,
+                    "stop_distance": 3,
+                    "can_teleport": true
+                }
+            }
+        },
+        "components": {
+            "minecraft:type_family": { "family": ["turtle", "mob", "animal"] },
+            "minecraft:collision_box": { "width": 1.2, "height": 0.4 },
+            "minecraft:health": { "value": 60, "max": 60 },
+            "minecraft:movement": { "value": 0.35 },
+            "minecraft:attack": { "damage": 6 },
+            "minecraft:navigation.walk": { "can_path_over_water": true, "avoid_water": false, "can_float": true },
+            "minecraft:movement.basic": {},
+            "minecraft:physics": {},
+            "minecraft:pushable": { "is_pushable": true, "is_pushable_by_piston": true },
+            "minecraft:persistent": {},
+            "minecraft:breathable": { "total_supply": 15, "suffocate_time": 0, "breathes_water": true, "breathes_air": true },
+            "minecraft:knockback_resistance": { "value": 0.8 },
+            "minecraft:damage_sensor": { "triggers": [{ "cause": "all", "deals_damage": true }] },
+            "minecraft:behavior.nearest_attackable_target": {
+                "priority": 1, "within_radius": 12, "must_see": true, "reselect_targets": true,
+                "entity_types": [{ "filters": { "test": "is_family", "subject": "other", "value": "monster" }, "max_dist": 12 }]
+            },
+            "minecraft:behavior.melee_attack": { "priority": 3, "speed_multiplier": 1.4, "track_target": true },
+            "minecraft:behavior.random_stroll": { "priority": 8, "speed_multiplier": 0.6, "xz_dist": 3, "y_dist": 1 },
+            "minecraft:behavior.look_at_player": { "priority": 9, "look_distance": 8, "probability": 0.1 },
+            "minecraft:behavior.float": { "priority": 0 }
+        },
+        "events": {
+            "little:tame": { "add": { "component_groups": ["little:tamed"] } }
+        }
+    }
+}
