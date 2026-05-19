@@ -1,0 +1,20 @@
+{
+    "format_version": "1.10.0",
+    "minecraft:client_entity": {
+        "description": {
+            "identifier": "little:shelly",
+            "materials": { "default": "entity_alphatest" },
+            "textures": {
+                "default": "textures/entity/shelly/shelly"
+            },
+            "geometry": { "default": "geometry.turtle" },
+            "render_controllers": ["controller.render.little_shelly"],
+            "animations": {
+                "general": "animation.turtle.general",
+                "move": "animation.turtle.move",
+                "look_at_target": "animation.common.look_at_target"
+            },
+            "scripts": { "animate": ["look_at_target"] }
+        }
+    }
+}

@@ -24,7 +24,7 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | VM | Windows 11 on KVM/QEMU with virt-manager |
 | Runner | [GDK-Proton10-32](https://github.com/Weather-OS/GDK-Proton) |
 | Launcher | [Lutris](https://lutris.net/) (Flatpak, v0.5.22+) |
-| Game Version | Bedrock 1.26.301.0+ (GDK build, 1.21.120 minimum) |
+| Game Version | Bedrock 1.26.21+ (GDK build; see [GDK-Proton fixes](#gdk-proton-fixes-for-12621) for 1.26.21+) |
 | GPU Tested | NVIDIA GeForce GTX 1650, Driver 580.126.09 |
 
 ## Scripts
@@ -41,7 +41,18 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | `scripts/update-xcurl.sh` | Host | Re-download XCurl.dll after game updates |
 | `scripts/update.sh` | Host | Full update: re-extract from VM and re-setup |
 | `lutris-installer.yaml` | Host | Lutris installer — automates all of Part 4 |
+| `scripts/apply-patches.sh` | Host | Apply DLL binary patches (ntdll WNF stubs) to GDK-Proton |
+| `scripts/verify-patches.sh` | Host | Verify all patches are correctly applied (12 checks) |
+| `scripts/debug-launch.sh` | Host | Launch with Wine debug output captured to log file |
+| `scripts/collect-logs.sh` | Host | Collect full diagnostic info (system, DLLs, prefix health) |
+| `scripts/patch-ntdll-wnf.py` | Host | LIEF binary patcher: add 14 WNF stub exports to ntdll.dll |
+| `scripts/patch-combase-stubless.py` | Host | Reference LIEF patcher for combase ObjectStublessClient (see note) |
+| `scripts/register-winrt-class.sh` | Host | Register WinRT class in Wine prefix registry |
+| `scripts/lan-proxy.py` | Host | UDP broadcast proxy for LAN multiplayer across subnets |
+| `scripts/install-addon.sh` | Host | Install .mcaddon/.mcpack into the game's com.mojang directory |
 | `scripts/uninstall.sh` | Host | Remove all Minecraft Bedrock files and Lutris entries |
+| `stubs/gameconfighelper/` | Host | MinGW stub DLL: GameConfigHelper.dll (OpenGameConfigForPackage) |
+| `stubs/midlproxystub/` | Host | MinGW stub DLL: ObjectStublessClient3-32 forwarding to rpcrt4 |
 
 ---
 
@@ -344,6 +355,35 @@ SKIP_GDK_UPDATE=1 ./scripts/update.sh <windows-user> <vm-ip>
 
 ---
 
+## GDK-Proton Fixes for 1.26.21+
+
+Minecraft Bedrock 1.26.21 introduced dependencies on Windows APIs not yet in GDK-Proton10-32. The following fixes are required.
+
+### Required Fixes (applied by `scripts/apply-patches.sh` and `scripts/setup.sh`)
+
+1. **WNF stubs in ntdll.dll** — The game calls `NtQueryWnfStateData`, `RtlSubscribeWnfStateChangeNotification`, and 12 other [Windows Notification Facility](https://blog.quarkslab.com/playing-with-the-windows-notification-facility-wnf.html) functions. Without these exports, the game crashes on startup. Fix: LIEF-patch `ntdll.dll` to add stub exports returning `STATUS_SUCCESS` via `scripts/patch-ntdll-wnf.py`. (Upstream: [WineGDK PR #47](https://github.com/Weather-OS/WineGDK/pull/47))
+
+2. **ObjectStublessClient forwarding in combase.dll** — `combase.dll` must forward `ObjectStublessClient3` through `ObjectStublessClient32` to `rpcrt4.dll`, where the real implementations live. Without this, COM activation fails silently. Two approaches: (a) rebuild combase+rpcrt4 from Wine source with the exports added to `rpcrt4.spec`, or (b) use the MinGW stub DLL in `stubs/midlproxystub/` which gets deployed by `scripts/setup.sh`.
+
+3. **XCurl dependency DLLs** — 13 DLLs (libbrotlidec, libssl, libcrypto, etc.) must be copied from GDK-Proton's wine dir to the game dir, otherwise `XCurl.dll` fails to load and networking is broken. Handled by `scripts/setup.sh`.
+
+4. **GameConfigHelper.dll** — Minecraft's `GameLaunchHelper.exe` imports `OpenGameConfigForPackage` from this DLL which doesn't exist in Wine. The stub in `stubs/gameconfighelper/` returns `S_OK`. Deployed by `scripts/setup.sh`.
+
+5. **CoreApplication WinRT activation** — The game calls `RoGetActivationFactory("Windows.ApplicationModel.Core.CoreApplication")` which requires registry entries and a stub factory in `windows.applicationmodel.dll`. Currently requires rebuilding from WineGDK source.
+
+6. **DataTransferManager stub** — The game calls `DataTransferManager.GetForWindow()` which must return a stub object instead of `E_NOTIMPL`, or the game throws an unhandled C++ exception. Requires rebuilding `twinapi.appcore.dll` from WineGDK source.
+
+7. **NtQueryLicenseValue** — Must return `STATUS_OBJECT_NAME_NOT_FOUND` instead of making a syscall. Patched in-place in `ntdll.dll`.
+
+8. **RtlGetDeviceFamilyInfoEnum** — Form factor value fix.
+
+9. **kernelbase.dll exports** — Three package-related APIs must be added: `GetCurrentPackagePath2`, `PackageFamilyNameFromFullName`, `PackageNameAndPublisherIdFromFamilyName` (all stub-return `APPMODEL_ERROR_NO_PACKAGE` = `0x3D54`). LIEF-patched.
+
+### Environment Variables (required for launch)
+
+- `UMU_ID=umu-0` and `SteamGameId=0` — Without these, Proton uses the Steam launch path and silently exits. Already set in `scripts/launch.sh`.
+- `PROTON_NO_NTSYNC=1` — Required for stability; without it the game hangs or crashes. Already set in `scripts/launch.sh`.
+
 ## Known Limitations
 
 - **No Microsoft account login** — XUser is not implemented in WineGDK
@@ -351,6 +391,8 @@ SKIP_GDK_UPDATE=1 ./scripts/update.sh <windows-user> <vm-ip>
 - **Multiplayer** — LAN play works natively; for external servers, use [ProxyPass](https://minecraft.wiki/w/Tutorial:Playing_Minecraft_on_Linux) to proxy them as LAN
 - **File picker crashes** — import worlds manually by extracting `.mcworld` files into `com.mojang/minecraftWorlds/`
 - **Wine prefix corruption** — crashes can corrupt the prefix; back up saves regularly
+- **1.26.21+ startup crash** — requires the GDK-Proton fixes described [above](#gdk-proton-fixes-for-12621)
+- **Work in progress** — The game currently gets through initialization (Vulkan, GDK runtime, window creation) but crashes on DataTransferManager COM activation. Active development in WineGDK is addressing remaining stubs.
 
 ## Troubleshooting
 
@@ -359,7 +401,10 @@ SKIP_GDK_UPDATE=1 ./scripts/update.sh <windows-user> <vm-ip>
 2. Ensure Lutris config has `runner_type: proton` (not plain wine)
 3. Check `STEAM_COMPAT_DATA_PATH` and `STEAM_COMPAT_CLIENT_INSTALL_PATH` env vars are set
 
-### Game crashes immediately
+### Game crashes immediately on 1.26.21+
+Most likely missing WNF stubs or ObjectStublessClient forwarding — see [GDK-Proton Fixes for 1.26.21+](#gdk-proton-fixes-for-12621). Check the Proton log for `err:module:import_dll` lines referencing `NtQueryWnfStateData` or `ObjectStublessClient`.
+
+### Game crashes immediately (general)
 Check `~/.var/app/net.lutris.Lutris/cache/lutris/lutris.log`
 
 ### Encrypted EXE
@@ -371,6 +416,11 @@ virsh domifaddr <vm-name>
 # Or check DHCP leases:
 virsh net-dhcp-leases default
 ```
+
+### Debug tools
+- Run `scripts/debug-launch.sh` to capture Wine debug output
+- Run `scripts/collect-logs.sh` for a full diagnostic report
+- Run `scripts/verify-patches.sh` to check all patches are applied
 
 ## References
 

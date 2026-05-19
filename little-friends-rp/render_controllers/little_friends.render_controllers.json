@@ -1,0 +1,22 @@
+{
+    "format_version": "1.8.0",
+    "render_controllers": {
+        "controller.render.little_axie": {
+            "geometry": "Geometry.default",
+            "materials": [
+                { "*": "Material.default" }
+            ],
+            "textures": ["Texture.default"]
+        },
+        "controller.render.little_shelly": {
+            "geometry": "Geometry.default",
+            "materials": [{ "*": "Material.default" }],
+            "textures": ["Texture.default"]
+        },
+        "controller.render.little_bamboo": {
+            "geometry": "Geometry.default",
+            "materials": [{ "*": "Material.default" }],
+            "textures": ["Texture.default"]
+        }
+    }
+}

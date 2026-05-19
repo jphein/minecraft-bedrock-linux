@@ -102,7 +102,7 @@ ssh "$SSH_TARGET" "powershell -command \"
 # Copy files from VM to host via SCP
 echo "[5/6] Downloading game files to host via SCP..."
 mkdir -p "$DEST_DIR"
-scp -r "$SSH_TARGET:\"$VM_STAGING\"/*" "$DEST_DIR/"
+scp -r "$SSH_TARGET:$VM_STAGING/*" "$DEST_DIR/"
 echo "  Done."
 
 # Verify

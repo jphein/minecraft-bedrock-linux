@@ -11,10 +11,11 @@
 #   1. Copies game files to the Lutris game directory
 #   2. Downloads and installs the GDK-Proton runner
 #   3. Replaces XCurl.dll with mingw curl (for network/marketplace)
-#   4. Downloads SSL CA certificates
-#   5. Copies xgameruntime DLLs from GDK-Proton
-#   6. Creates Wine prefix and installs GameInputRedist
-#   7. Generates a launch script that invokes GDK-Proton directly
+#   4. Copies XCurl dependency DLLs from GDK-Proton
+#   5. Downloads SSL CA certificates
+#   6. Copies xgameruntime DLLs from GDK-Proton
+#   7. Creates Wine prefix and installs GameInputRedist
+#   8. Generates a launch script that invokes GDK-Proton directly
 #
 # To update versions, change all references below:
 #   GDK-Proton: https://github.com/Weather-OS/GDK-Proton/releases
@@ -59,6 +60,15 @@ script:
           cp mingw64/bin/libcurl-4.dll "$GAMEDIR/game/XCurl.dll" &&
           rm -rf "$WORK"
 
+    # Copy XCurl dependency DLLs from GDK-Proton
+    - execute:
+        command: >-
+          for dll in libbrotlidec.dll libbrotlicommon.dll libidn2-0.dll libnghttp2-14.dll
+          libnghttp3-9.dll libngtcp2-16.dll libngtcp2_crypto_ossl-0.dll libpsl-5.dll
+          libssh2-1.dll libzstd.dll libcrypto-3-x64.dll libssl-3-x64.dll zlib1.dll; do
+          cp "$GAMEDIR/GDK-Proton10-32/files/lib/wine/x86_64-windows/$dll" "$GAMEDIR/game/";
+          done
+
     # Download SSL CA certificates (for HTTPS in-game)
     - execute:
         command: >-
@@ -89,6 +99,10 @@ script:
           #!/usr/bin/env bash
           set -euo pipefail
           GAMEDIR="$(cd "$(dirname "$0")" && pwd)"
+          # Required for non-Steam games — without UMU_ID/SteamGameId, Proton uses wrong launch path and silently exits
+          export UMU_ID=umu-0
+          export SteamGameId=0
+          export PROTON_NO_NTSYNC=1
           export STEAM_COMPAT_DATA_PATH="$GAMEDIR/prefix"
           export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/root"
           export PROTONPATH="$GAMEDIR/GDK-Proton10-32"
@@ -102,6 +116,9 @@ script:
 
   system:
     env:
+      UMU_ID: umu-0
+      SteamGameId: "0"
+      PROTON_NO_NTSYNC: "1"
       STEAM_COMPAT_DATA_PATH: $GAMEDIR/prefix
       STEAM_COMPAT_CLIENT_INSTALL_PATH: $HOME/.steam/root
       PROTONPATH: $GAMEDIR/GDK-Proton10-32

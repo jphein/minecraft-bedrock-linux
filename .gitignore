@@ -1,10 +1,35 @@
+# Claude Code
 .claude/
+
+# Windows binaries
 *.exe
 *.dll
+*.msi
+
+# Backup/temp files
 *.bak
-prefix/
-.env
-__pycache__/
-*.pyc
 *.swp
 *~
+*.tmp
+*.log
+
+# Wine prefix (game installation)
+prefix/
+
+# VM-extracted game files (1.6GB of binaries — never track)
+vmshare/
+
+# Environment / secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Build artifacts / caches
+*.cache
+
+# Build artifacts (stubs are built with MinGW)
+stubs/*/*.dll
+stubs/*/*.a
+stubs/*/*.o
