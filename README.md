@@ -1,6 +1,6 @@
-# Minecraft Bedrock on Ubuntu Linux (via Lutris + GDK-Proton)
+# Minecraft Bedrock on Ubuntu Linux (via WineGDK)
 
-Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraft Bedrock on Ubuntu.
+Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraft Bedrock on Ubuntu using [WineGDK](https://github.com/Weather-OS/WineGDK), a Wine fork with native GDK (Game Development Kit) support.
 
 > **WARNING: Known Limitations**
 >
@@ -22,9 +22,8 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 |-----------|---------|
 | Host OS | Ubuntu 24.04 LTS |
 | VM | Windows 11 on KVM/QEMU with virt-manager |
-| Runner | [GDK-Proton10-32](https://github.com/Weather-OS/GDK-Proton) |
-| Launcher | [Lutris](https://lutris.net/) (Flatpak, v0.5.22+) |
-| Game Version | Bedrock 1.26.21+ (GDK build; see [GDK-Proton fixes](#gdk-proton-fixes-for-12621) for 1.26.21+) |
+| Runner | [WineGDK](https://github.com/Weather-OS/WineGDK) (built from source) |
+| Game Version | Bedrock 1.26.21+ |
 | GPU Tested | NVIDIA GeForce GTX 1650, Driver 580.126.09 |
 
 ## Scripts
@@ -36,21 +35,15 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | `scripts/vm-setup-ssh.ps1` | VM | Enable OpenSSH, fix admin key auth, configure firewall |
 | `scripts/vm-extract-minecraft.ps1` | VM | Decrypt and copy Minecraft files (robocopy + package context) |
 | `scripts/host-copy-from-vm.sh` | Host | SSH into VM, extract game files, SCP to host |
-| `scripts/setup.sh` | Host | Set up XCurl, SSL certs, GDK DLLs, and Lutris config |
-| `scripts/launch.sh` | Host | Launch Minecraft directly via GDK-Proton |
+| `scripts/setup.sh` | Host | Set up XCurl, SSL certs, stub DLLs, and Wine prefix |
+| `scripts/launch.sh` | Host | Launch Minecraft via WineGDK (wine) |
+| `scripts/debug-launch.sh` | Host | Launch with Wine debug output captured to log file |
 | `scripts/update-xcurl.sh` | Host | Re-download XCurl.dll after game updates |
 | `scripts/update.sh` | Host | Full update: re-extract from VM and re-setup |
-| `lutris-installer.yaml` | Host | Lutris installer — automates all of Part 4 |
-| `scripts/apply-patches.sh` | Host | Apply DLL binary patches (ntdll WNF stubs) to GDK-Proton |
-| `scripts/verify-patches.sh` | Host | Verify all patches are correctly applied (12 checks) |
-| `scripts/debug-launch.sh` | Host | Launch with Wine debug output captured to log file |
 | `scripts/collect-logs.sh` | Host | Collect full diagnostic info (system, DLLs, prefix health) |
-| `scripts/patch-ntdll-wnf.py` | Host | LIEF binary patcher: add 14 WNF stub exports to ntdll.dll |
-| `scripts/patch-combase-stubless.py` | Host | Reference LIEF patcher for combase ObjectStublessClient (see note) |
-| `scripts/register-winrt-class.sh` | Host | Register WinRT class in Wine prefix registry |
 | `scripts/lan-proxy.py` | Host | UDP broadcast proxy for LAN multiplayer across subnets |
 | `scripts/install-addon.sh` | Host | Install .mcaddon/.mcpack into the game's com.mojang directory |
-| `scripts/uninstall.sh` | Host | Remove all Minecraft Bedrock files and Lutris entries |
+| `scripts/uninstall.sh` | Host | Remove all Minecraft Bedrock files |
 | `stubs/gameconfighelper/` | Host | MinGW stub DLL: GameConfigHelper.dll (OpenGameConfigForPackage) |
 | `stubs/midlproxystub/` | Host | MinGW stub DLL: ObjectStublessClient3-32 forwarding to rpcrt4 |
 
@@ -108,7 +101,7 @@ Use `virt-manager` (GUI) or the CLI script:
 | TPM | Emulated, TIS model, version 2.0 |
 
 > **Note:** VirtIO disk/NIC are faster but require loading drivers during Windows install
-> (browse VirtIO CDROM → `vioscsi\w11\amd64` when no disk is found).
+> (browse VirtIO CDROM -> `vioscsi\w11\amd64` when no disk is found).
 > SATA + e1000e work out of the box with no extra drivers.
 
 After install, install the [virtio-win guest tools](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso) inside the VM for best performance (open the ISO in Explorer, run `virtio-win-gt-x64.msi`).
@@ -121,8 +114,8 @@ We use **SSH + SCP** to copy game files from the VM (see Parts 2 and 3). This is
 
 1. Install `virtiofsd` on the host: `sudo apt install virtiofsd`
 2. Shut down the VM, then in virt-manager:
-   - Memory → check **"Enable shared memory"**
-   - Add Hardware → Filesystem: Driver=virtiofs, Source=`/home/<user>/vmshare`, Target=`vmshare`
+   - Memory -> check **"Enable shared memory"**
+   - Add Hardware -> Filesystem: Driver=virtiofs, Source=`/home/<user>/vmshare`, Target=`vmshare`
 3. Inside Windows: install [WinFSP](https://github.com/winfsp/winfsp/releases), reboot, start "VirtIO-FS Service" in `services.msc`
 4. The shared folder appears as a new drive letter
 
@@ -249,42 +242,39 @@ If it says `data` instead of `PE32+`, the exe is still encrypted — re-run the 
 
 ---
 
-## Part 4: Set Up and Launch on Ubuntu
+## Part 4: Build WineGDK and Launch on Ubuntu
 
-### Option A: Lutris Installer (recommended)
-
-The Lutris installer automates all of Part 4 — it downloads GDK-Proton, replaces XCurl, sets up SSL certs, copies runtime DLLs, creates the Wine prefix, and configures the game in Lutris.
+### 4.1 Build Dependencies
 
 ```bash
-flatpak install -y flathub net.lutris.Lutris
-flatpak run net.lutris.Lutris -i https://raw.githubusercontent.com/jphein/minecraft-bedrock-linux/master/lutris-installer.yaml
+sudo apt install -y build-essential gcc-mingw-w64-x86-64 flex bison \
+  libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+  libxcomposite-dev libglu1-mesa-dev libfreetype-dev libosmesa6-dev \
+  libgnutls28-dev libpulse-dev libudev-dev libdbus-1-dev libfontconfig-dev \
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libvulkan-dev \
+  libusb-1.0-0-dev libsdl2-dev libcups2-dev libkrb5-dev libsane-dev \
+  libpcap-dev libunwind-dev gettext
 ```
 
-Or if you cloned this repo:
-```bash
-flatpak run net.lutris.Lutris -i lutris-installer.yaml
-```
-
-Lutris will prompt you to select any file inside your extracted game directory (from Part 3). After installation, launch the game from Lutris.
-
-### Option B: Manual Setup
-
-#### 4.1 Install Lutris (Flatpak)
+### 4.2 Clone and Build WineGDK
 
 ```bash
-flatpak install -y flathub net.lutris.Lutris
+git clone https://github.com/Weather-OS/WineGDK.git ~/Projects/WineGDK
+cd ~/Projects/WineGDK
+
+# Configure with an install prefix (64-bit only is sufficient for Bedrock)
+./configure --prefix=$HOME/Projects/WineGDK/install --enable-win64
+
+# Build (uses all cores)
+make -j$(nproc)
+
+# Install to the prefix directory
+make install
 ```
 
-#### 4.2 Install GDK-Proton
+The build takes 10-30 minutes depending on hardware. The resulting `wine` binary will be at `~/Projects/WineGDK/install/bin/wine`.
 
-Download the latest release from [GDK-Proton releases](https://github.com/Weather-OS/GDK-Proton/releases) and extract:
-
-```bash
-mkdir -p ~/.steam/root/compatibilitytools.d/
-tar xf GDK-Proton10-32.tar.gz -C ~/.steam/root/compatibilitytools.d/
-```
-
-#### 4.3 Run the Setup Script
+### 4.3 Run the Setup Script
 
 ```bash
 ./scripts/setup.sh
@@ -292,26 +282,46 @@ tar xf GDK-Proton10-32.tar.gz -C ~/.steam/root/compatibilitytools.d/
 
 This will:
 1. Replace `XCurl.dll` with the mingw curl build (for network functionality)
-2. Download SSL certificates (for HTTPS)
-3. Copy `xgameruntime.dll` and `xgameruntime.dll.threading` to the game directory
-4. Install `GameInputRedist.msi` into the Wine prefix
-5. Symlink GDK-Proton into Lutris's runner directory
-6. Create the Lutris game config and database entry
+2. Copy XCurl dependency DLLs to the game directory
+3. Download SSL certificates (for HTTPS)
+4. Build and install the midlproxystub DLL (ObjectStublessClient fix)
+5. Create the Wine prefix
 
-#### 4.4 Launch
+> **Note:** `setup.sh` currently references GDK-Proton paths and Lutris configuration. These will be updated to match WineGDK. In the meantime, you can set environment variables to override:
+> ```bash
+> GAME_DIR=~/Games/minecraft-bedrock/game PREFIX_DIR=~/Games/minecraft-bedrock/prefix ./scripts/setup.sh
+> ```
 
-**Via Lutris:**
-Open Lutris (Flatpak) and click Play on "Minecraft Bedrock"
+### 4.4 Launch
 
-**Via script (no Lutris needed):**
 ```bash
 ./scripts/launch.sh
 ```
 
-**Key environment variables** (these are critical — without them you get "missing a required component"):
-- `STEAM_COMPAT_DATA_PATH` — path to Wine prefix
-- `STEAM_COMPAT_CLIENT_INSTALL_PATH` — path to `.steam/root`
-- `PROTONPATH` — path to GDK-Proton
+This runs `wine` from your WineGDK build directly — no Proton, no Steam Runtime, no Lutris.
+
+**Environment variables** (all have sensible defaults in the script):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `WINEGDK_DIR` | `~/Projects/WineGDK/install` | Path to WineGDK install prefix |
+| `GAME_DIR` | `~/Games/minecraft-bedrock/game` | Path to extracted game files |
+| `WINEPREFIX` | `~/Games/minecraft-bedrock/prefix` | Wine prefix for the game |
+
+Example with custom paths:
+```bash
+WINEGDK_DIR=~/Projects/WineGDK/install GAME_DIR=~/vmshare/minecraft-bedrock ./scripts/launch.sh
+```
+
+### 4.5 Debug Launch
+
+To capture Wine debug output for troubleshooting:
+```bash
+./scripts/debug-launch.sh           # Standard debug channels
+./scripts/debug-launch.sh --verbose # All warnings + SEH + module loading
+```
+
+Logs are saved to `~/minecraft-debug-<timestamp>.log`.
 
 ---
 
@@ -321,7 +331,7 @@ Open Lutris (Flatpak) and click Play on "Minecraft Bedrock"
 ./scripts/uninstall.sh
 ```
 
-This removes the game directory, Wine prefix, GDK-Proton, Lutris configs, and database entries. It handles both Lutris installer and manual `setup.sh` installations. Source game files in `~/vmshare/` are kept as a backup — delete them manually if no longer needed.
+This removes the game directory, Wine prefix, and related configs. Source game files in `~/vmshare/` are kept as a backup — delete them manually if no longer needed. Your WineGDK build at `~/Projects/WineGDK/` is not touched.
 
 ---
 
@@ -334,12 +344,10 @@ When a new Minecraft Bedrock version comes out, update it in the Xbox App on the
 ```
 
 This will:
-1. **Update GDK-Proton** — downloads the latest release from GitHub
-2. **Re-extract game files** — decrypts and copies the updated build from the VM
-3. **Update XCurl.dll** — auto-detects and downloads the latest mingw curl from MSYS2
-4. **Refresh SSL certificates** — downloads the latest Mozilla CA bundle
-5. **Copy xgameruntime DLLs** — from the updated GDK-Proton
-6. **Re-install GameInputRedist** — into the Wine prefix
+1. **Re-extract game files** — decrypts and copies the updated build from the VM
+2. **Update XCurl.dll** — auto-detects and downloads the latest mingw curl from MSYS2
+3. **Refresh SSL certificates** — downloads the latest Mozilla CA bundle
+4. **Re-install GameInputRedist** — into the Wine prefix
 
 World saves are automatically backed up before extraction and restored afterward.
 
@@ -348,41 +356,41 @@ World saves are automatically backed up before extraction and restored afterward
 ```bash
 # Skip VM extraction (just re-setup with existing game files)
 SKIP_VM=1 ./scripts/update.sh <windows-user> <vm-ip>
-
-# Skip GDK-Proton update (keep current version)
-SKIP_GDK_UPDATE=1 ./scripts/update.sh <windows-user> <vm-ip>
 ```
+
+> **Note:** `update.sh` still has GDK-Proton update logic that will be refactored for WineGDK. For now, you can rebuild WineGDK manually with `git pull && make -j$(nproc) && make install` in your WineGDK directory.
 
 ---
 
-## GDK-Proton Fixes for 1.26.21+
+## WineGDK Fixes and Stubs
 
-Minecraft Bedrock 1.26.21 introduced dependencies on Windows APIs not yet in GDK-Proton10-32. The following fixes are required.
+WineGDK is a Wine fork that includes native support for several Windows APIs that Minecraft Bedrock depends on. The following are handled **natively by WineGDK** (no patches needed):
 
-### Required Fixes (applied by `scripts/apply-patches.sh` and `scripts/setup.sh`)
+- **GameInput** — builtin `gameinput.dll` and `gameinputredist.dll` stub the GameInput API safely (Microsoft's native redistributable crashes under Wine due to missing HID/winebus.sys support)
+- **xgameruntime** — `xgameruntime.dll` and related GDK runtime DLLs are built into WineGDK
+- **DataTransferManager** — `DataTransferManager.GetForWindow()` returns a stub instead of `E_NOTIMPL`
+- **CoreApplication WinRT activation** — `RoGetActivationFactory("Windows.ApplicationModel.Core.CoreApplication")` is supported
+- **WNF stubs in ntdll.dll** — `NtQueryWnfStateData`, `RtlSubscribeWnfStateChangeNotification`, and related Windows Notification Facility functions are stubbed
+- **NtQueryLicenseValue** — returns `STATUS_OBJECT_NAME_NOT_FOUND` correctly
+- **RtlGetDeviceFamilyInfoEnum** — form factor value is correct
+- **kernelbase.dll package APIs** — `GetCurrentPackagePath2`, `PackageFamilyNameFromFullName`, `PackageNameAndPublisherIdFromFamilyName` are stubbed
 
-1. **WNF stubs in ntdll.dll** — The game calls `NtQueryWnfStateData`, `RtlSubscribeWnfStateChangeNotification`, and 12 other [Windows Notification Facility](https://blog.quarkslab.com/playing-with-the-windows-notification-facility-wnf.html) functions. Without these exports, the game crashes on startup. Fix: LIEF-patch `ntdll.dll` to add stub exports returning `STATUS_SUCCESS` via `scripts/patch-ntdll-wnf.py`. (Upstream: [WineGDK PR #47](https://github.com/Weather-OS/WineGDK/pull/47))
+### Still Required (applied by setup scripts)
 
-2. **ObjectStublessClient forwarding in combase.dll** — `combase.dll` must forward `ObjectStublessClient3` through `ObjectStublessClient32` to `rpcrt4.dll`, where the real implementations live. Without this, COM activation fails silently. Two approaches: (a) rebuild combase+rpcrt4 from Wine source with the exports added to `rpcrt4.spec`, or (b) use the MinGW stub DLL in `stubs/midlproxystub/` which gets deployed by `scripts/setup.sh`.
+1. **XCurl.dll** — Minecraft ships a proprietary XCurl that depends on Xbox Live services. We replace it with a mingw-built `libcurl` so networking (skin downloads, marketplace, etc.) works. The replacement depends on ~13 DLLs (libbrotlidec, libssl, libcrypto, etc.) that must be in the game directory — `setup.sh` handles this.
 
-3. **XCurl dependency DLLs** — 13 DLLs (libbrotlidec, libssl, libcrypto, etc.) must be copied from GDK-Proton's wine dir to the game dir, otherwise `XCurl.dll` fails to load and networking is broken. Handled by `scripts/setup.sh`.
+2. **SSL certificates** — The mingw curl needs a CA bundle. Downloaded from [curl.se/ca](https://curl.se/ca/cacert.pem) by `setup.sh`.
 
-4. **GameConfigHelper.dll** — Minecraft's `GameLaunchHelper.exe` imports `OpenGameConfigForPackage` from this DLL which doesn't exist in Wine. The stub in `stubs/gameconfighelper/` returns `S_OK`. Deployed by `scripts/setup.sh`.
+3. **GameConfigHelper.dll** — Minecraft's `GameLaunchHelper.exe` imports `OpenGameConfigForPackage` from this DLL, which does not exist in Wine. The MinGW stub in `stubs/gameconfighelper/` returns `S_OK`. Deployed by `setup.sh`.
 
-5. **CoreApplication WinRT activation** — The game calls `RoGetActivationFactory("Windows.ApplicationModel.Core.CoreApplication")` which requires registry entries and a stub factory in `windows.applicationmodel.dll`. Currently requires rebuilding from WineGDK source.
+4. **midlproxystub DLL** — Wine's PE-only mode has a bug resolving `combase.dll` forwarders to `rpcrt4.dll` for `ObjectStublessClient3` through `ObjectStublessClient32`. The stub DLL in `stubs/midlproxystub/` provides direct implementations. Built and deployed by `setup.sh`.
 
-6. **DataTransferManager stub** — The game calls `DataTransferManager.GetForWindow()` which must return a stub object instead of `E_NOTIMPL`, or the game throws an unhandled C++ exception. Requires rebuilding `twinapi.appcore.dll` from WineGDK source.
+### Environment Variables (set automatically by launch scripts)
 
-7. **NtQueryLicenseValue** — Must return `STATUS_OBJECT_NAME_NOT_FOUND` instead of making a syscall. Patched in-place in `ntdll.dll`.
-
-8. **RtlGetDeviceFamilyInfoEnum** — Form factor value fix.
-
-9. **kernelbase.dll exports** — Three package-related APIs must be added: `GetCurrentPackagePath2`, `PackageFamilyNameFromFullName`, `PackageNameAndPublisherIdFromFamilyName` (all stub-return `APPMODEL_ERROR_NO_PACKAGE` = `0x3D54`). LIEF-patched.
-
-### Environment Variables (required for launch)
-
-- `UMU_ID=umu-0` and `SteamGameId=0` — Without these, Proton uses the Steam launch path and silently exits. Already set in `scripts/launch.sh`.
-- `PROTON_NO_NTSYNC=1` — Required for stability; without it the game hangs or crashes. Already set in `scripts/launch.sh`.
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `WINEPREFIX` | `~/Games/minecraft-bedrock/prefix` | Wine prefix for the game |
+| `WINEDLLOVERRIDES` | `GameInputRedist=b` | Force Wine's builtin GameInput instead of the native MSI redistributable, which crashes |
 
 ## Known Limitations
 
@@ -391,23 +399,39 @@ Minecraft Bedrock 1.26.21 introduced dependencies on Windows APIs not yet in GDK
 - **Multiplayer** — LAN play works natively; for external servers, use [ProxyPass](https://minecraft.wiki/w/Tutorial:Playing_Minecraft_on_Linux) to proxy them as LAN
 - **File picker crashes** — import worlds manually by extracting `.mcworld` files into `com.mojang/minecraftWorlds/`
 - **Wine prefix corruption** — crashes can corrupt the prefix; back up saves regularly
-- **1.26.21+ startup crash** — requires the GDK-Proton fixes described [above](#gdk-proton-fixes-for-12621)
-- **Work in progress** — The game currently gets through initialization (Vulkan, GDK runtime, window creation) but crashes on DataTransferManager COM activation. Active development in WineGDK is addressing remaining stubs.
+- **Deferred rendering crash** — the game's PBR/RTX renderer (graphics_mode:2) has a race condition under Wine; launch scripts force Classic mode (graphics_mode:0) automatically
+- **Work in progress** — WineGDK is under active development; some APIs may still be incomplete
 
 ## Troubleshooting
 
+### wine not found
+
+Ensure WineGDK is built and installed:
+```bash
+ls ~/Projects/WineGDK/install/bin/wine
+```
+If missing, rebuild: `cd ~/Projects/WineGDK && make -j$(nproc) && make install`
+
+### WineGDK build fails
+
+Common issues:
+- **Missing headers**: install the build dependencies from [4.1](#41-build-dependencies)
+- **Vulkan not found**: `sudo apt install libvulkan-dev`
+- **MinGW not found**: `sudo apt install gcc-mingw-w64-x86-64` (needed for PE DLL builds and stub DLLs)
+
+### Game crashes immediately
+
+1. Run `scripts/debug-launch.sh` and check the log for `err:module:import_dll` lines — these indicate missing DLLs
+2. Ensure `XCurl.dll` and its dependencies are in the game directory
+3. Check that `GameConfigHelper.dll` and the midlproxystub DLL are installed
+
 ### "Missing a required component" error
-1. Verify `xgameruntime.dll` and `xgameruntime.dll.threading` are in the game directory
-2. Ensure Lutris config has `runner_type: proton` (not plain wine)
-3. Check `STEAM_COMPAT_DATA_PATH` and `STEAM_COMPAT_CLIENT_INSTALL_PATH` env vars are set
 
-### Game crashes immediately on 1.26.21+
-Most likely missing WNF stubs or ObjectStublessClient forwarding — see [GDK-Proton Fixes for 1.26.21+](#gdk-proton-fixes-for-12621). Check the Proton log for `err:module:import_dll` lines referencing `NtQueryWnfStateData` or `ObjectStublessClient`.
-
-### Game crashes immediately (general)
-Check `~/.var/app/net.lutris.Lutris/cache/lutris/lutris.log`
+1. Verify `xgameruntime.dll` and `xgameruntime.dll.threading` are in the game directory (WineGDK should provide these, but they can also be copied from the WineGDK build)
+2. Check that `WINEPREFIX` points to a valid prefix
 
 ### Encrypted EXE
+
 Re-run `Invoke-CommandInDesktopPackage` on the Windows VM — see Part 3
 
 ### VM IP address not found
@@ -420,13 +444,11 @@ virsh net-dhcp-leases default
 ### Debug tools
 - Run `scripts/debug-launch.sh` to capture Wine debug output
 - Run `scripts/collect-logs.sh` for a full diagnostic report
-- Run `scripts/verify-patches.sh` to check all patches are applied
 
 ## References
 
+- [WineGDK (GitHub)](https://github.com/Weather-OS/WineGDK) — Wine fork with GDK support
 - [Minecraft Wiki - Playing on Linux](https://minecraft.wiki/w/Tutorial:Playing_Minecraft_on_Linux)
-- [GDK-Proton (GitHub)](https://github.com/Weather-OS/GDK-Proton)
-- [WineGDK (GitHub)](https://github.com/Weather-OS/WineGDK)
 - [MCGDKLauncher (GitHub)](https://github.com/oliik2013/MCGDKLauncher)
 - [Bedrock Native Modding Wiki - GDK](https://bedrock-native-modding.github.io/wiki/platforms/gdk.html)
 - [Microsoft - Download Windows 11](https://www.microsoft.com/en-us/software-download/windows11)
@@ -441,4 +463,4 @@ This project is licensed under the [GNU General Public License v3.0](LICENSE).
 **Third-party components** downloaded at runtime by the setup scripts:
 - **mingw-w64 curl** ([curl license](https://curl.se/docs/copyright.html)) — replaces XCurl.dll for network functionality
 - **CA certificate bundle** ([Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/)) — from [curl.se/ca](https://curl.se/ca/cacert.pem)
-- **GDK-Proton** ([BSD-3-Clause / Valve Proton license](https://github.com/Weather-OS/GDK-Proton)) — Wine/Proton fork with GDK support
+- **WineGDK** ([LGPL, same as Wine](https://github.com/Weather-OS/WineGDK)) — Wine fork with GDK support, built from source

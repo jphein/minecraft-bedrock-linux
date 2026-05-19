@@ -31,11 +31,11 @@ verify: $(DLL)
 	@objdump -p $(DLL) | grep "ObjectStubless" | wc -l | xargs -I{} echo "  {} ObjectStublessClientN exports (expect 30)"
 	@objdump -p $(DLL) | grep "ObjectStublessClient4" | head -1
 
-PREFIX_DIR ?= $(HOME)/Games/MinecraftBedrock/prefix
+PREFIX_DIR ?= $(HOME)/Games/minecraft-bedrock/prefix
 
 deploy: $(DLL)
-	cp $(DLL) $(PREFIX_DIR)/pfx/drive_c/windows/system32/$(DLL)
-	@echo "Deployed to $(PREFIX_DIR)/pfx/drive_c/windows/system32/"
+	cp $(DLL) $(PREFIX_DIR)/drive_c/windows/system32/$(DLL)
+	@echo "Deployed to $(PREFIX_DIR)/drive_c/windows/system32/"
 
 clean:
 	rm -f $(DLL)

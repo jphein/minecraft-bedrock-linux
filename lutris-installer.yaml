@@ -16,6 +16,7 @@
 #   6. Copies xgameruntime DLLs from GDK-Proton
 #   7. Creates Wine prefix and installs GameInputRedist
 #   8. Generates a launch script that invokes GDK-Proton directly
+#      (with WINEDLLOVERRIDES="GameInputRedist=b" to use builtin DLL)
 #
 # To update versions, change all references below:
 #   GDK-Proton: https://github.com/Weather-OS/GDK-Proton/releases
@@ -106,6 +107,13 @@ script:
           export STEAM_COMPAT_DATA_PATH="$GAMEDIR/prefix"
           export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/root"
           export PROTONPATH="$GAMEDIR/GDK-Proton10-32"
+          # Force Wine builtin D3D12/D3D11/DXGI instead of DXVK/vkd3d-proton.
+          # bgfx (Minecraft's renderer) hits a vkd3d-proton memory aliasing bug
+          # causing a black screen. Builtin DLLs route through wined3d->OpenGL.
+          export PROTON_USE_BUILTIN3D=1
+          # Force Wine to use GDK-Proton's builtin gameinputredist.dll instead of
+          # Microsoft's redistributable, which crashes under Wine/Proton.
+          export WINEDLLOVERRIDES="GameInputRedist=b"
           exec "$GAMEDIR/GDK-Proton10-32/proton" run "$GAMEDIR/game/Minecraft.Windows.exe"
 
     - chmodx: $GAMEDIR/launch.sh
@@ -119,9 +127,11 @@ script:
       UMU_ID: umu-0
       SteamGameId: "0"
       PROTON_NO_NTSYNC: "1"
+      PROTON_USE_BUILTIN3D: "1"
       STEAM_COMPAT_DATA_PATH: $GAMEDIR/prefix
       STEAM_COMPAT_CLIENT_INSTALL_PATH: $HOME/.steam/root
       PROTONPATH: $GAMEDIR/GDK-Proton10-32
+      WINEDLLOVERRIDES: GameInputRedist=b
       GAMEID: minecraft-bedrock
       STORE: none
 
