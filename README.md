@@ -2,16 +2,15 @@
 
 Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraft Bedrock on Ubuntu using [WineGDK](https://github.com/Weather-OS/WineGDK), a Wine fork with native GDK (Game Development Kit) support.
 
-> **WARNING: Known Limitations**
->
-> This is an **experimental** setup with significant trade-offs:
+> **Status: WORKING** -- the game launches, renders, and plays on Linux.
+
+> **Known Limitations**
 >
 > - **No Microsoft account login** — XUser is not implemented in WineGDK, so you **cannot sign in**
 > - **No Realms, no featured servers** — these require Microsoft authentication
 > - **No online multiplayer** (without workaround) — LAN play works natively (same version as Windows); for external servers, use [ProxyPass](https://minecraft.wiki/w/Tutorial:Playing_Minecraft_on_Linux) to proxy them as LAN
 > - **File picker crashes the game** — import worlds manually by extracting `.mcworld` files into `com.mojang/minecraftWorlds/`
 > - **Wine prefix can corrupt on crashes** — back up your saves regularly
-> - **Game may crash unexpectedly** — this is not a stable, supported configuration
 >
 > If you only need Java Edition, it runs **natively** on Linux — just use [Prism Launcher](https://prismlauncher.org/).
 > [mcpelauncher](https://mcpelauncher.readthedocs.io/) (Android-based) is **not a viable alternative** — it cannot run the latest Bedrock versions, so cross-play with Android/console/Windows players fails due to version mismatch.
@@ -22,9 +21,37 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 |-----------|---------|
 | Host OS | Ubuntu 24.04 LTS |
 | VM | Windows 11 on KVM/QEMU with virt-manager |
-| Runner | [WineGDK](https://github.com/Weather-OS/WineGDK) (built from source) |
-| Game Version | Bedrock 1.26.21+ |
-| GPU Tested | NVIDIA GeForce GTX 1650, Driver 580.126.09 |
+| Runner | [WineGDK](https://github.com/Weather-OS/WineGDK) (built from source), Wine 11.8 |
+| Game Version | Bedrock 1.26.21 |
+| GPU Tested | NVIDIA GeForce GTX 1650 (TU117), Driver 595.58.03 |
+| Forks | [jphein/WineGDK](https://github.com/jphein/WineGDK), [jphein/GDK-Proton](https://github.com/jphein/GDK-Proton) |
+
+## Current Status (2026-05-19)
+
+**WORKING** -- Minecraft Bedrock 1.26.21 launches and renders on Ubuntu Linux via WineGDK. Both WineGDK build configurations produce a working game:
+
+| Build | Install Path | Notes |
+|-------|-------------|-------|
+| clang-20 | `~/Projects/WineGDK/install/` | Default build |
+| clang-23 | `~/Projects/WineGDK/install-clang23/` | Matches ChristopherHX's build configuration |
+
+### What works
+- Game launches, renders, and plays (world generation, movement, audio, input)
+- D3D11 rendering pipeline fully functional
+- LAN multiplayer
+
+### Previous black screen issue (resolved)
+
+The game previously showed a black screen across 13 different configurations (DXVK, lavapipe, wined3d OpenGL/Vulkan, etc.). The root cause was **the wrong game binary**: file extraction from the Windows VM had silently failed, leaving version 1.26.3 in place when 1.26.21 was expected. With the correct 1.26.21 binary, the game renders correctly. The rendering issue was never in bgfx, Wine, or the GPU driver -- it was a version mismatch.
+
+### Critical file: xgameruntime.dll.threading
+
+The file `xgameruntime.dll.threading` is a native Microsoft DLL that must be present in the game directory. It is not built by WineGDK -- it comes from the Windows VM game extraction. If this file is missing, the game will fail to launch. Verify it exists after running `host-copy-from-vm.sh`.
+
+### Tracking
+- [Issue #4](https://github.com/jphein/minecraft-bedrock-linux/issues/4) — Black screen (resolved: wrong binary version)
+- [Issue #5](https://github.com/jphein/minecraft-bedrock-linux/issues/5) — bgfx analysis (resolved: not a bgfx issue)
+- [Weather-OS/WineGDK#54](https://github.com/Weather-OS/WineGDK/issues/54) — Upstream discussion
 
 ## Scripts
 
@@ -43,6 +70,7 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | `scripts/collect-logs.sh` | Host | Collect full diagnostic info (system, DLLs, prefix health) |
 | `scripts/lan-proxy.py` | Host | UDP broadcast proxy for LAN multiplayer across subnets |
 | `scripts/install-addon.sh` | Host | Install .mcaddon/.mcpack into the game's com.mojang directory |
+| `scripts/deploy-gameinput.sh` | Host | Copy builtin GameInput DLLs from WineGDK build to prefix |
 | `scripts/uninstall.sh` | Host | Remove all Minecraft Bedrock files |
 | `stubs/gameconfighelper/` | Host | MinGW stub DLL: GameConfigHelper.dll (OpenGameConfigForPackage) |
 | `stubs/midlproxystub/` | Host | MinGW stub DLL: ObjectStublessClient3-32 forwarding to rpcrt4 |
@@ -274,6 +302,17 @@ make install
 
 The build takes 10-30 minutes depending on hardware. The resulting `wine` binary will be at `~/Projects/WineGDK/install/bin/wine`.
 
+**Alternative: clang-23 build** (matches ChristopherHX's configuration):
+
+```bash
+cd ~/Projects/WineGDK
+CC=clang-23 ./configure --prefix=$HOME/Projects/WineGDK/install-clang23 --enable-win64
+make -j$(nproc)
+make install
+```
+
+Both clang-20 and clang-23 builds produce a working game. To use the clang-23 build, set `WINEGDK_DIR=~/Projects/WineGDK/install-clang23` when running the launch scripts.
+
 ### 4.3 Run the Setup Script
 
 ```bash
@@ -284,13 +323,19 @@ This will:
 1. Replace `XCurl.dll` with the mingw curl build (for network functionality)
 2. Copy XCurl dependency DLLs to the game directory
 3. Download SSL certificates (for HTTPS)
-4. Build and install the midlproxystub DLL (ObjectStublessClient fix)
-5. Create the Wine prefix
+4. Copy xgameruntime DLLs to the game directory
+5. Create the Wine prefix and install GameInputRedist
+6. Build and install the midlproxystub DLL (ObjectStublessClient fix)
+7. Patch graphics options to avoid deferred renderer crash
 
-> **Note:** `setup.sh` currently references GDK-Proton paths and Lutris configuration. These will be updated to match WineGDK. In the meantime, you can set environment variables to override:
+> **Known issue: msiexec hangs on GameInputRedist.msi**
+>
+> Step 5 uses `wine msiexec` to install GameInputRedist, but msiexec hangs indefinitely under WineGDK. The workaround is to use `msiextract` (from the `msitools` package) instead:
 > ```bash
-> GAME_DIR=~/Games/minecraft-bedrock/game PREFIX_DIR=~/Games/minecraft-bedrock/prefix ./scripts/setup.sh
+> sudo apt install msitools
+> msiextract -C "$PREFIX_DIR/drive_c" "$GAME_DIR/Installers/GameInputRedist.msi"
 > ```
+> The `setup.sh` script does not yet handle this automatically -- if it hangs at the GameInputRedist step, kill it (Ctrl+C), run the `msiextract` command above, and re-run `setup.sh` (it will skip already-completed steps or re-do them harmlessly).
 
 ### 4.4 Launch
 
@@ -358,7 +403,10 @@ World saves are automatically backed up before extraction and restored afterward
 SKIP_VM=1 ./scripts/update.sh <windows-user> <vm-ip>
 ```
 
-> **Note:** `update.sh` still has GDK-Proton update logic that will be refactored for WineGDK. For now, you can rebuild WineGDK manually with `git pull && make -j$(nproc) && make install` in your WineGDK directory.
+To update WineGDK itself, rebuild from source:
+```bash
+cd ~/Projects/WineGDK && git pull && make -j$(nproc) && make install
+```
 
 ---
 
@@ -400,6 +448,8 @@ WineGDK is a Wine fork that includes native support for several Windows APIs tha
 - **File picker crashes** — import worlds manually by extracting `.mcworld` files into `com.mojang/minecraftWorlds/`
 - **Wine prefix corruption** — crashes can corrupt the prefix; back up saves regularly
 - **Deferred rendering crash** — the game's PBR/RTX renderer (graphics_mode:2) has a race condition under Wine; launch scripts force Classic mode (graphics_mode:0) automatically
+- **msiexec hangs** — `wine msiexec` hangs when installing GameInputRedist.msi; use `msiextract` instead (see setup instructions above)
+- **xgameruntime.dll.threading** — this native Microsoft DLL must come from the Windows VM extraction; it is not built by WineGDK
 - **Work in progress** — WineGDK is under active development; some APIs may still be incomplete
 
 ## Troubleshooting
@@ -427,8 +477,26 @@ Common issues:
 
 ### "Missing a required component" error
 
-1. Verify `xgameruntime.dll` and `xgameruntime.dll.threading` are in the game directory (WineGDK should provide these, but they can also be copied from the WineGDK build)
-2. Check that `WINEPREFIX` points to a valid prefix
+1. Verify `xgameruntime.dll` is in the game directory (copied from the WineGDK build by `setup.sh`)
+2. Verify `xgameruntime.dll.threading` is in the game directory -- this is a native Microsoft DLL that must come from the Windows VM game extraction, not from WineGDK. If missing, re-run `host-copy-from-vm.sh`
+3. Check that `WINEPREFIX` points to a valid prefix
+
+### Black screen (no rendering)
+
+If the game launches but shows only a black screen, the most likely cause is the **wrong game binary version**. Verify you have the correct version:
+```bash
+strings ~/Games/minecraft-bedrock/game/Minecraft.Windows.exe | grep -i "1\.26\."
+```
+Re-extract from the VM with `host-copy-from-vm.sh` if the version does not match what is installed in the Xbox App. The VM file copy can fail silently, leaving an older binary in place.
+
+### setup.sh hangs at GameInputRedist
+
+`wine msiexec` hangs under WineGDK. Kill the script (Ctrl+C) and install manually:
+```bash
+sudo apt install msitools
+msiextract -C ~/Games/minecraft-bedrock/prefix/drive_c ~/Games/minecraft-bedrock/game/Installers/GameInputRedist.msi
+```
+Then re-run `setup.sh` to complete the remaining steps.
 
 ### Encrypted EXE
 

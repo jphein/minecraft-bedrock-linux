@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-WINEGDK_DIR="${WINEGDK_DIR:-$HOME/Projects/WineGDK/install}"
+WINEGDK_DIR="${WINEGDK_DIR:-$HOME/Projects/WineGDK/install-clang23}"
 GAME_DIR="${GAME_DIR:-$HOME/Games/minecraft-bedrock/game}"
 PREFIX_DIR="${PREFIX_DIR:-$HOME/Games/minecraft-bedrock/prefix}"
 
@@ -20,9 +20,8 @@ echo "[debug] WINEDEBUG=$WINEDEBUG_CHANNELS"
 
 export WINEPREFIX="$PREFIX_DIR"
 export WINEDEBUG="$WINEDEBUG_CHANNELS"
-# Force Wine to use WineGDK's builtin gameinputredist.dll instead of
-# Microsoft's redistributable, which crashes under Wine.
-export WINEDLLOVERRIDES="GameInputRedist=b"
+# DXVK: use native d3d11/dxgi (Vulkan backend)
+export WINEDLLOVERRIDES="d3d11,dxgi=n"
 
 WINE="$WINEGDK_DIR/bin/wine"
 if [[ ! -x "$WINE" ]]; then
