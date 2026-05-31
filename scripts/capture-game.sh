@@ -1,42 +1,30 @@
 #!/usr/bin/env bash
 # capture-game.sh <outdir> <total_seconds> [name_regex]
-# Robust visual capture for the Minecraft window on GNOME Wayland (game = XWayland client).
-# Polls for the window, RAISES it (so it's not hidden behind the terminal), and grabs a
-# screenshot each interval. Also detects Wine/crash error dialogs. Writes:
-#   <outdir>/shot-<NNN>s.png ...   game frames over time
-#   <outdir>/error-<NNN>s.png      any error/crash dialog
-#   <outdir>/windows-seen.txt      every top-level window title observed
+# WORKING capture on GNOME Wayland (verified 2026-05-31):
+#   gnome-screenshot -w  grabs the ACTIVE window's surface (occlusion-proof). A fullscreen
+#   Bedrock window holds focus, so -w captures the game even behind the terminal.
+# What does NOT work on GNOME/mutter: grim (no wlr-screencopy), xwd -id (BadMatch on composited
+#   XWayland windows), org.gnome.Shell.Screenshot D-Bus (AccessDenied), xdotool windowactivate
+#   (no _NET_ACTIVE_WINDOW). Launchers must set gfx_fullscreen:1 so the game grabs focus.
+# Game-window frames are the game's geometry (e.g. 1849x1040); 1920x1080 frames are the desktop
+# (game wasn't focused that tick) — keep the game-sized ones.
 set -uo pipefail
-OUT="${1:?outdir}"; TOTAL="${2:-120}"; NAME="${3:-Minecraft}"
-mkdir -p "$OUT"
-export DISPLAY="${DISPLAY:-:0}"
-
-shoot() { grim "$1" 2>/dev/null || gnome-screenshot -f "$1" 2>/dev/null; }
-
+OUT="${1:?outdir}"; TOTAL="${2:-150}"; NAME="${3:-^Minecraft$}"
+U=$(id -u)
+export DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR="/run/user/$U" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$U/bus"
+mkdir -p "$OUT"; : > "$OUT/windows-seen.txt"
 found=NO; shots=0; t=0; STEP=12
-: > "$OUT/windows-seen.txt"
 while [ "$t" -lt "$TOTAL" ]; do
-  # record every visible window title (for the run log)
-  for w in $(xdotool search --onlyvisible --name '.' 2>/dev/null); do
-    nm=$(xdotool getwindowname "$w" 2>/dev/null); [ -n "$nm" ] && echo "${t}s: $nm" >> "$OUT/windows-seen.txt"
-  done
-  # the game window
-  wid=$(xdotool search --name "$NAME" 2>/dev/null | tail -1)
+  wid=$(xdotool search --name "$NAME" 2>/dev/null | head -1)
   if [ -n "${wid:-}" ]; then
     found=YES
-    xdotool windowactivate "$wid" 2>/dev/null
-    xdotool windowraise   "$wid" 2>/dev/null
-    sleep 1
-    shoot "$OUT/shot-$(printf '%03d' "$t")s.png" && shots=$((shots+1))
+    xdotool windowfocus "$wid" 2>/dev/null; xdotool windowraise "$wid" 2>/dev/null; sleep 1
+    f="$OUT/shot-$(printf '%03d' "$t")s.png"
+    gnome-screenshot -w -f "$f" 2>/dev/null && shots=$((shots+1))
+    dim=$(ffprobe -v error -select_streams v -show_entries stream=width,height -of csv=p=0 "$f" 2>/dev/null)
+    echo "${t}s: win='$(xdotool getwindowname "$wid" 2>/dev/null)' geo=$(xdotool getwindowgeometry "$wid" 2>/dev/null | grep -o 'Geometry: [0-9x]*') shot=$dim" >> "$OUT/windows-seen.txt"
   fi
-  # crash / error dialogs
-  ewid=$(xdotool search --name 'Program Error\|Wine\|required component\|has stopped\|Application Error' 2>/dev/null | tail -1)
-  if [ -n "${ewid:-}" ]; then
-    xdotool windowactivate "$ewid" 2>/dev/null; xdotool windowraise "$ewid" 2>/dev/null; sleep 1
-    shoot "$OUT/error-$(printf '%03d' "$t")s.png"
-    echo "${t}s: ERROR DIALOG: $(xdotool getwindowname "$ewid" 2>/dev/null)" >> "$OUT/windows-seen.txt"
-  fi
+  # error/crash dialogs are usually inside the game (cohtml) now, captured by -w above
   sleep "$STEP"; t=$((t+STEP+1))
 done
-sort -u "$OUT/windows-seen.txt" -o "$OUT/windows-seen.txt"
-echo "capture: game-window=$found shots=$shots; titles -> $OUT/windows-seen.txt"
+echo "capture: game-window=$found shots=$shots -> $OUT/ (see windows-seen.txt for per-shot dims)"

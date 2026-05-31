@@ -39,7 +39,7 @@ cp -f "$REPO/stubs/midlproxystub/$MIDL" "$PFX/drive_c/windows/system32/$MIDL" 2>
 
 # graphics_mode:0 if options exist
 OPT="$PFX/drive_c/users/$(whoami)/AppData/Roaming/Minecraft Bedrock/Users/Shared/games/com.mojang/minecraftpe/options.txt"
-[ -f "$OPT" ] && { sed -i 's/^graphics_mode:[0-9]\+/graphics_mode:0/' "$OPT"; echo "patched graphics_mode:0"; }
+[ -f "$OPT" ] && { sed -i 's/^graphics_mode:[0-9]\+/graphics_mode:0/' "$OPT"; sed -i 's/^gfx_fullscreen:[0-9]\+/gfx_fullscreen:1/' "$OPT"; echo "patched graphics_mode:0 + gfx_fullscreen:1 (for capture focus)"; }
 
 echo "launching (log: $LOG)..."
 "$WINE" "$EXE" >"$LOG" 2>&1 &

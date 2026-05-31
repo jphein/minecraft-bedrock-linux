@@ -40,7 +40,7 @@ export WINEDEBUG="+loaddll,+module"
 
 # patch graphics_mode:0 if options.txt already exists (first run it won't)
 OPT="$PFX/pfx/drive_c/users/steamuser/AppData/Roaming/Minecraft Bedrock/Users/Shared/games/com.mojang/minecraftpe/options.txt"
-[ -f "$OPT" ] && { sed -i 's/^graphics_mode:[0-9]\+/graphics_mode:0/' "$OPT"; echo "patched graphics_mode:0"; }
+[ -f "$OPT" ] && { sed -i 's/^graphics_mode:[0-9]\+/graphics_mode:0/' "$OPT"; sed -i 's/^gfx_fullscreen:[0-9]\+/gfx_fullscreen:1/' "$OPT"; echo "patched graphics_mode:0 + gfx_fullscreen:1 (for capture focus)"; }
 
 echo "launching (log: $LOG)..."
 "$GDK/proton" run "$EXE" >"$LOG" 2>&1 &
