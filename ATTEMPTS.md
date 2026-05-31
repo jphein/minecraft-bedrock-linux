@@ -3,11 +3,14 @@
 Codified record of everything tried across ~4 multi-day attempts, the results, and what to do
 next. Last updated **2026-05-31**.
 
-> **Ground-truth status (2026-05-31):** Bedrock **1.26.21 launches and the 3D world renders**
-> under WineGDK (clang-23 build), with audio + LAN working. **The entire UI (cohtml) does NOT
-> render** — no menus, buttons, HUD, or hotbar. **The game is therefore NOT playable yet.**
-> (The README's "WORKING / plays" wording is optimistic and predates the cohtml finding; treat
-> this file + upstream Weather-OS/WineGDK#54 as authoritative.)
+> **Ground-truth status (2026-05-31, UPDATED):** Bedrock **1.26.21 launches, 3D renders, AND the
+> full cohtml main menu now RENDERS** (Play/Settings/Realms/Marketplace, v26.21) — the earlier
+> "cohtml can't render" theory was **wrong** (it drew the GameInput dialog and the menu). Recipe:
+> builtin GameInput + **`GameInputRedist.dll` absent** + DXVK (clang-23) → no error screen.
+> Keyboard works. **Remaining gap: menu mouse-clicks** (game doesn't call GetPointerInfo at the
+> menu → likely GameInput HID button path) and a **GNOME-Wayland interaction wall** (can't inject
+> input / screenshot once the game loses focus — only direct interaction reaches it).
+> **Play path today:** keyboard-navigate Play→Servers→Add Server→luna→Join. See §6b/§6c.
 
 ---
 
