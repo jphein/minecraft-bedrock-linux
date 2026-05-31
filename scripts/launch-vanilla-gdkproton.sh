@@ -45,11 +45,8 @@ OPT="$PFX/pfx/drive_c/users/steamuser/AppData/Roaming/Minecraft Bedrock/Users/Sh
 echo "launching (log: $LOG)..."
 "$GDK/proton" run "$EXE" >"$LOG" 2>&1 &
 PID=$!
-echo "pid $PID; waiting ${WAIT}s..."
-sleep "$WAIT"
-
-# screenshot
-command -v gnome-screenshot &>/dev/null && gnome-screenshot -f "$OUT/screenshot.png" 2>/dev/null && echo "screenshot: $OUT/screenshot.png"
+echo "pid $PID; capturing for ${WAIT}s (find+raise+multishot)..."
+bash /home/jp/Projects/minecraft-bedrock-linux/scripts/capture-game.sh "$OUT" "$WAIT" Minecraft
 
 # quick findings
 {
