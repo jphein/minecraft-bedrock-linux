@@ -2,7 +2,7 @@
 
 Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraft Bedrock on Ubuntu using [WineGDK](https://github.com/Weather-OS/WineGDK), a Wine fork with native GDK (Game Development Kit) support.
 
-> **Status: WORKING** -- the game launches, renders, and plays on Linux.
+> **Status: PARTIAL (not yet playable)** -- Bedrock 1.26.21 launches and the **3D world renders** (audio + LAN work), but the **entire UI does not render** (see below). You can't navigate menus, so it's not playable yet. See [`ATTEMPTS.md`](ATTEMPTS.md) for the full matrix and the current investigation.
 
 > **Known Limitations**
 >
@@ -26,23 +26,29 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | GPU Tested | NVIDIA GeForce GTX 1650 (TU117), Driver 595.58.03 |
 | Forks | [jphein/WineGDK](https://github.com/jphein/WineGDK), [jphein/GDK-Proton](https://github.com/jphein/GDK-Proton) |
 
-## Current Status (2026-05-19)
+## Current Status (2026-05-31)
 
-**WORKING** -- Minecraft Bedrock 1.26.21 launches and renders on Ubuntu Linux via WineGDK. Both WineGDK build configurations produce a working game:
+**PARTIAL — not yet playable.** Minecraft Bedrock 1.26.21 launches and the 3D world renders on Ubuntu Linux via WineGDK, but the UI does not. Both build configurations behave the same:
 
 | Build | Install Path | Notes |
 |-------|-------------|-------|
-| clang-20 | `~/Projects/WineGDK/install/` | Default build |
-| clang-23 | `~/Projects/WineGDK/install-clang23/` | Matches ChristopherHX's build configuration |
+| clang-20 | `~/Projects/WineGDK/install/` | wine-11.8 |
+| clang-23 | `~/Projects/WineGDK/install-clang23/` | wine-11.1; matches ChristopherHX's build (current path) |
 
 ### What works
-- Game launches, renders, and plays (world generation, movement, audio, input)
-- D3D11 rendering pipeline fully functional
+- Game launches; **3D world renders** (world generation, movement)
+- Audio
 - LAN multiplayer
+- D3D11/DXVK + D3D12/vkd3d-proton pipelines active
 
-### Previous black screen issue (resolved)
+### What does NOT work (current blocker)
+- **The entire UI is invisible.** Minecraft Bedrock builds all UI — menus, buttons, HUD, hotbar — on **cohtml** (Coherent Gameface). None of it renders under bare WineGDK, so the game can't be navigated.
+- **Leading hypothesis:** cohtml composites the UI via a **shared D3D texture (keyed-mutex / NT-handle)**, and vanilla WineGDK lacks Proton's shared-resource patches (DXVK `OpenSharedResourceByName` = `E_NOTIMPL`; VKD3D-Proton upstream-Wine shared resources only since v3.0). Tracking: [issue #7](https://github.com/jphein/minecraft-bedrock-linux/issues/7); full plan in [`ATTEMPTS.md`](ATTEMPTS.md) §6.
+- No Microsoft account login (XUser) — login work lives on `LukasPAH/minimal-xbl` / `olivi-r/rebased-xuser`, not yet integrated here.
 
-The game previously showed a black screen across 13 different configurations (DXVK, lavapipe, wined3d OpenGL/Vulkan, etc.). The root cause was **the wrong game binary**: file extraction from the Windows VM had silently failed, leaving version 1.26.3 in place when 1.26.21 was expected. With the correct 1.26.21 binary, the game renders correctly. The rendering issue was never in bgfx, Wine, or the GPU driver -- it was a version mismatch.
+### Earlier black screen (resolved — different issue)
+
+Before the 3D world rendered, the game showed a black screen across 13 configurations (DXVK, lavapipe, wined3d OpenGL/Vulkan, etc.). That root cause was **the wrong game binary**: VM extraction had silently left version 1.26.3 in place when 1.26.21 was expected. With the correct 1.26.21 binary built under clang-23, the 3D world renders. That black screen was never bgfx, Wine, or the GPU driver — it was a version mismatch. (This is distinct from the current cohtml UI blocker above.)
 
 ### Critical file: xgameruntime.dll.threading
 
