@@ -135,6 +135,16 @@ Proton/Steam Deck → Gameface is not Wine-incompatible; the gap is the *environ
 
 ---
 
+## 6b. GameInput error screen — precise isolation (2026-05-31, attempt #5)
+
+Major progress in *understanding* (not yet playable):
+- **cohtml renders.** Captured the game drawing the full styled Ore-UI "missing required component / Install" dialog over the 3D world. The HTML/UI engine is **not** the blocker — reverses the old assumption.
+- **The single gate is the GameInput error screen** (`GameInputErrorScreenController::onOpen`, file offset `0x3961a60`, prologue still valid on 1.26.21.1). NOP-ing it → 3D world renders, **no menu** (game stuck in the GameInput-failed state).
+- **The trigger is a check INVISIBLE to the GameInput API trace.** With the stub redist active, `/tmp/gameinput.log` shows `GameInputInitialize`→`GameInputCreate` succeed, QI for IID `{bbaa66d2-837a-40f7-a303917d500955f4}`, `SetFocusPolicy`, `RegisterDeviceCallback`, mouse `WM_POINTER`/`WM_MOUSEMOVE` flowing — i.e. GameInput *works* — yet `onOpen` still fires. So the precondition is a separate GDK **component/service/package check** (the "TaskQueue monitor" in earlier notes), not the redist DLL load or `GameInputInitialize`.
+- **Tried, did NOT clear it:** real MS redist (895KB) → fail (WinRT); stub redist with `GameInputInitialize` forward (245KB) → still dialog; NOP `onOpen` → no dialog but no menu either. Registry keys (RedistDir/GameInputRedistService) from setup.sh present, still dialog.
+- **This is the exact wall attempts #1–#4 died at.** No WineGDK *fork* changes the game's in-exe check; cracking it needs one of: (a) RE the precondition in `Minecraft.Windows.exe` (disassemble what decides to navigate to the error screen + the condition it tests); (b) a proper builtin `gameinputredist` + GameInput **host service/package** that satisfies the check (extend upstream PR #48); (c) wire GameInput's TaskQueue monitor to xgameruntime's XTaskQueue.
+- **Capture method (for the record):** `gnome-screenshot -w` on a focused **fullscreen** game (set `gfx_fullscreen:1`), staying idle during the grab. grim/xwd/Shell-DBus/Xephyr all fail on this GNOME Wayland box — see memory `gnome-wayland-game-capture`.
+
 ## 7. Constraints & lessons
 
 - **Clean-room:** AI-assisted Wine patches violate Wine's contribution rules. Keep our patches in
