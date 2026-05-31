@@ -37,17 +37,15 @@ def build_pong_packet(server_name, server_port, server_guid=12345678901234567,
                       motd="Dedicated Server", gamemode="Creative",
                       players=0, max_players=10):
     """Build a fake unconnected pong packet that Minecraft uses for LAN discovery."""
-    # Edition;MOTD;Protocol;Version;Players;MaxPlayers;ServerID;WorldName;Gamemode;NintendoLimited;Port;PortV6
     edition = "MCPE"
-    # Protocol version shown in the LAN discovery UI.  The actual connection
-    # negotiates its own version, so these don't need to match exactly.
-    protocol = "776"
-    version = "1.21.51"
+    protocol = "975"
+    version = "1.26.21"
     nintendo = "1"
     portv6 = str(server_port + 1)
 
     status = (f"{edition};{motd};{protocol};{version};{players};{max_players};"
-              f"{server_guid};{server_name};{gamemode};{nintendo};{server_port};{portv6}")
+              f"{server_guid};{server_name};{gamemode};{nintendo};{server_port};{portv6};"
+              f"0;1;1;")
     status_bytes = status.encode("utf-8")
 
     # Packet: ID (1) + Time (8) + ServerGUID (8) + Magic (16) + StringLength (2) + String
@@ -60,6 +58,24 @@ def build_pong_packet(server_name, server_port, server_guid=12345678901234567,
     return packet
 
 
+def _get_broadcast_addrs():
+    """Collect broadcast addresses from all network interfaces."""
+    import subprocess
+    addrs = {"255.255.255.255", "127.0.0.1"}
+    try:
+        out = subprocess.check_output(
+            ["ip", "-o", "addr", "show"], text=True, stderr=subprocess.DEVNULL
+        )
+        for line in out.splitlines():
+            parts = line.split()
+            for i, tok in enumerate(parts):
+                if tok == "brd" and i + 1 < len(parts):
+                    addrs.add(parts[i + 1])
+    except Exception:
+        pass
+    return sorted(addrs)
+
+
 def broadcast_lan(servers, interval=1.5):
     """Broadcast fake LAN discovery packets for all servers."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -70,6 +86,8 @@ def broadcast_lan(servers, interval=1.5):
     sock.bind(("", 0))
     _broadcast_ports.add(sock.getsockname()[1])
 
+    broadcast_targets = _get_broadcast_addrs()
+
     pongs = []
     for i, s in enumerate(servers):
         guid = 12345678901234567 + i
@@ -77,12 +95,13 @@ def broadcast_lan(servers, interval=1.5):
                                  gamemode=s.get("gamemode", "Creative"))
         pongs.append(pong)
         print(f"[LAN] Broadcasting '{s['name']}' on port {s['local_port']}")
+    print(f"[LAN] Broadcast targets: {broadcast_targets}")
 
     while True:
         try:
             for pong in pongs:
-                sock.sendto(pong, ("255.255.255.255", 19132))
-                sock.sendto(pong, ("127.0.0.1", 19132))
+                for target in broadcast_targets:
+                    sock.sendto(pong, (target, 19132))
         except OSError as e:
             print(f"[LAN] Broadcast error: {e}")
         time.sleep(interval)
@@ -148,15 +167,18 @@ def proxy_udp(local_port, remote_ip, remote_port, name, all_servers=None):
 
             # Handle ping packets locally for LAN discovery
             if len(data) >= 25 and data[0:1] == b"\x01":
+                print(f"[PING] {name}: ping from {addr[0]}:{addr[1]} ({len(data)} bytes)")
                 if all_servers:
                     for i, s in enumerate(all_servers):
                         guid = 12345678901234567 + i
                         pong = build_pong_packet(s["name"], s["local_port"],
                                                  server_guid=guid)
                         sock.sendto(pong, addr)
+                        print(f"[PONG] -> {addr[0]}:{addr[1]} '{s['name']}' port={s['local_port']}")
                 else:
                     pong = build_pong_packet(name, local_port)
                     sock.sendto(pong, addr)
+                    print(f"[PONG] -> {addr[0]}:{addr[1]} '{name}' port={local_port}")
 
             # Periodically clean up stale clients
             now = time.time()

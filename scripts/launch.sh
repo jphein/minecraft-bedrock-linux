@@ -17,7 +17,9 @@ fi
 export WINEPREFIX="$PREFIX_DIR"
 
 # DXVK: use native d3d11/dxgi (Vulkan backend, much faster than wined3d GL)
-export WINEDLLOVERRIDES="d3d11,dxgi=n"
+# GameInput: our custom stub with pointer hooks + WndProc subclass
+# ntuser-private: stub with ordinal exports 2503/2505 (Microsoft.InputStateManager.dll needs these)
+export WINEDLLOVERRIDES="d3d11,dxgi=n;GameInput=n;api-ms-win-rtcore-ntuser-private-l1-1-1=n;ext-ms-win-ntuser-private-l1-1-1=n"
 
 # Wine synchronization: esync + fsync for lower overhead
 export WINEESYNC=1

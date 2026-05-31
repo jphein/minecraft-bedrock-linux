@@ -1,0 +1,5 @@
+LIBRARY GameInput
+EXPORTS
+    GameInputCreate
+    DllCanUnloadNow PRIVATE
+    DllGetClassObject PRIVATE

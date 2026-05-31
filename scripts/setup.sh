@@ -189,8 +189,20 @@ else
     echo "  WARNING: DXVK not found at $DXVK_DIR"
 fi
 
-# 9. Build and install Windows App Runtime bootstrapper stub
-echo "[9/10] Building Windows App Runtime bootstrapper stub..."
+# 9. Build and install GameInput stub (bypasses "missing required component" dialog)
+echo "[9/11] Building GameInput stub..."
+GAMEINPUT_DIR="$SCRIPT_DIR/../stubs/gameinput"
+if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
+    (cd "$GAMEINPUT_DIR" && make clean && make)
+    cp "$GAMEINPUT_DIR/GameInput.dll" "$PREFIX_DIR/drive_c/windows/system32/gameinput.dll"
+    echo "  Done."
+else
+    echo "  WARNING: x86_64-w64-mingw32-gcc not found."
+    echo "  Install with: sudo apt install gcc-mingw-w64-x86-64"
+fi
+
+# 10. Build and install Windows App Runtime bootstrapper stub
+echo "[10/11] Building Windows App Runtime bootstrapper stub..."
 BOOTSTRAP_DIR="$SCRIPT_DIR/../stubs/winappruntime-bootstrap"
 BOOTSTRAP_DLL="Microsoft.WindowsAppRuntime.Bootstrap.dll"
 if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
@@ -203,8 +215,8 @@ else
     echo "  Install with: sudo apt install gcc-mingw-w64-x86-64"
 fi
 
-# 10. Patch graphics_mode to avoid deferred renderer crash
-echo "[10/10] Patching graphics options..."
+# 11. Patch graphics_mode to avoid deferred renderer crash
+echo "[11/11] Patching graphics options..."
 OPTIONS_FILE="$PREFIX_DIR/drive_c/users/$(whoami)/AppData/Roaming/Minecraft Bedrock/Users/Shared/games/com.mojang/minecraftpe/options.txt"
 if [[ -f "$OPTIONS_FILE" ]]; then
     sed -i 's/^graphics_mode:[0-9]\+/graphics_mode:0/' "$OPTIONS_FILE"
