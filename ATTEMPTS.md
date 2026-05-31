@@ -145,6 +145,17 @@ Major progress in *understanding* (not yet playable):
 - **This is the exact wall attempts #1–#4 died at.** No WineGDK *fork* changes the game's in-exe check; cracking it needs one of: (a) RE the precondition in `Minecraft.Windows.exe` (disassemble what decides to navigate to the error screen + the condition it tests); (b) a proper builtin `gameinputredist` + GameInput **host service/package** that satisfies the check (extend upstream PR #48); (c) wire GameInput's TaskQueue monitor to xgameruntime's XTaskQueue.
 - **Capture method (for the record):** `gnome-screenshot -w` on a focused **fullscreen** game (set `gfx_fullscreen:1`), staying idle during the grab. grim/xwd/Shell-DBus/Xephyr all fail on this GNOME Wayland box — see memory `gnome-wayland-game-capture`.
 
+
+## 6c. PLAYABLE MENU reached (2026-05-31) — recipe + remaining click gap
+
+**Main menu renders, no dialog**, via `scripts/launch-playable.sh`: builtin gameinput (`gameinput=b`) +
+**`GameInputRedist.dll` absent** (its presence triggers the GDK component error screen) + DXVK + clang-23.
+cohtml pointer-click hook injected via **dwmapi.dll proxy** (`dwmapi=n`, game statically imports
+`dwmapi!DwmSetWindowAttribute`). Keyboard works → **keyboard-navigate Play→Servers→Add Server→luna→Join to play today.**
+Remaining: menu mouse-clicks (game doesn't call GetPointerInfo at menu → likely GameInput HID button path).
+**GNOME-Wayland interaction wall:** once the game loses focus, ydotool/xdotool injection + `gnome-screenshot -w`
+fail → only direct interaction at the machine reaches the game; can't auto-verify clicks.
+
 ## 7. Constraints & lessons
 
 - **Clean-room:** AI-assisted Wine patches violate Wine's contribution rules. Keep our patches in
