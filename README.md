@@ -35,6 +35,8 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | clang-20 | `~/Projects/WineGDK/install/` | wine-11.8 |
 | clang-23 | `~/Projects/WineGDK/install-clang23/` | wine-11.1; matches ChristopherHX's build (current path) |
 
+> **Build base (2026-05-31):** the WineGDK source now tracks **`LukasPAH/WineGDK minimal-xbl`** (the newest dev branch) plus our local WM_POINTER input patch — branch `wip/input-xbl`. `minimal-xbl` adds Xbox Live **device-code login** and `xgamesave` stubs on top of `next` (login is present in the build but untested here). GDK-Proton is already current with its upstream.
+
 ### What works
 - Game launches; **3D world renders** (world generation, movement)
 - Audio
