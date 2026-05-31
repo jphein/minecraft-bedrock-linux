@@ -18,9 +18,9 @@ EXE="$GAME_DIR/Minecraft.Windows.exe"
 echo "=== VANILLA GDK-Proton ==="
 echo "proton: $GDK/proton"; echo "game: $EXE"; echo "prefix: $PFX"
 
-# kill any old game/wine
-pkill -9 -f 'Minecraft.Windows.exe' 2>/dev/null
-ps -eo pid,cmd | grep -iE 'wine|proton|Minecraft' | grep -v grep | awk '{print $1}' | xargs -r kill -9 2>/dev/null
+# Kill ONLY the game exe — NEVER a broad 'wine|proton' grep (that kills concurrent
+# builds and even this script, whose path contains "proton"/"Minecraft").
+pkill -9 -f 'Minecraft\.Windows\.exe' 2>/dev/null
 sleep 2
 
 # minimal game-side setup (documented in SETUP_VANILLA.md): GameConfigHelper next to exe

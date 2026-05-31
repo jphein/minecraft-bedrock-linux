@@ -73,11 +73,12 @@ echo "=== config: $CONFIG — $DESC ==="
 echo "wine: $WINE"
 [[ -x "$WINE" ]] || { echo "ERROR: wine not found at $WINE (build it first)"; exit 1; }
 
-# --- kill any old game/wine (per project rule: never leave zombies) ---
-pkill -9 -f 'Minecraft.Windows.exe' 2>/dev/null
-ps -eo pid,cmd | grep -iE 'wine|Minecraft' | grep -v grep | awk '{print $1}' | xargs -r kill -9 2>/dev/null
+# --- kill any old game (per project rule: never leave zombies) ---
+# Kill ONLY the game exe by exact name — NEVER a broad 'wine|Minecraft' grep, which
+# would also kill concurrent WineGDK builds and this script's own process.
+pkill -9 -f 'Minecraft\.Windows\.exe' 2>/dev/null
 sleep 2
-echo "old processes cleared: $(ps -eo cmd | grep -ciE 'Minecraft.Windows.exe' || true) remaining"
+echo "old game processes remaining: $(pgrep -cf 'Minecraft\.Windows\.exe' || true)"
 
 # --- apply graphics options ---
 if [[ -f "$OPTIONS_FILE" ]]; then
