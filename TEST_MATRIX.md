@@ -39,9 +39,9 @@ bare WineGDK lacks; if the UI renders there, the root cause is confirmed.
 
 | Runtime | Launch method | UI (cohtml) | Notes |
 |---|---|:--:|---|
-| GDK-Proton (Lutris) | Lutris / `proton run` against `~/Games/minecraft-bedrock-edition-lutris/game` | ? | **same 1.26.21 binary** — that's the point |
-| GE-Proton10-32 (Heroic) | Heroic, `~/Games/GDK-Proton10-32/proton` | ? | alt Proton runtime |
-| bare WineGDK clang-23 | `scripts/run-test.sh baseline` | ? | reference (UI broken) |
+| **GDK-Proton (real, 10-32)** | `scripts/launch-vanilla-gdkproton.sh` | ❌ **renders nothing** | **VERIFIED 2026-05-31:** Minecraft.Windows.exe **never creates a D3D device** (no DXVK `Minecraft_dxgi.log`, no vkd3d/D3D12; only the Proton helper `xalia.exe` uses DXVK). cohtml/Renoir DLLs map in, then clean process exit. Black/empty window — capturing it was a dead end. Matches "GDK-Proton not for 1.26.20+". |
+| GE-Proton10-32 (Heroic) | Heroic, `~/Games/GDK-Proton10-32/proton` | (likely ❌) | plain Proton, no GDK components — expected ≤ GDK-Proton; low priority |
+| **bare WineGDK clang-23** | (cap4, patched build) | ✅ **renders** | DXVK creates D3D11 device; 3D world + cohtml Ore-UI dialog drawn. The productive path. |
 
 **Interpretation:** UI ✅ on GDK-Proton + ❌ on bare WineGDK ⇒ shared-resource patches are the
 fix → cherry-pick Proton's `winevulkan`/`dxgi` shared-resource patches into the clang-23 WineGDK
