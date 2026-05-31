@@ -52,14 +52,15 @@ for v in "${VARIANTS[@]}"; do
   ( cd "$bld" && make -j"$J" ) >>"$log" 2>&1
   rc=$?
   if [ $rc -ne 0 ]; then echo "[$name] BUILD FAILED (rc=$rc) — see $log (tail below)"; tail -12 "$log"; rm -rf "$src" "$bld"; continue; fi
-  echo "[$name] make install ..." | tee -a "$log"
-  ( cd "$bld" && make install ) >>"$log" 2>&1
-  echo "[$name] cleaning build tree to save disk..." | tee -a "$log"
-  rm -rf "$src" "$bld"
-  if [ -x "$inst/bin/wine" ]; then
-    echo "[$name] OK -> $($inst/bin/wine --version 2>&1|head -1) — free now $(free_gb)G"
+  echo "[$name] make -i install (ignore idl-collision errors so libs still install) ..." | tee -a "$log"
+  ( cd "$bld" && make -i install ) >>"$log" 2>&1
+  # Only delete the build tree if the install is actually COMPLETE (wine + ntdll.so present).
+  if [ -x "$inst/bin/wine" ] && find "$inst" -name 'ntdll.so' | grep -q .; then
+    echo "[$name] OK -> $($inst/bin/wine --version 2>&1|head -1); install complete, cleaning build tree" | tee -a "$log"
+    rm -rf "$src" "$bld"
+    echo "[$name] free now $(free_gb)G"
   else
-    echo "[$name] INSTALL MISSING wine binary — check $log"
+    echo "[$name] INSTALL INCOMPLETE (no wine/ntdll.so) — KEEPING build tree $bld for diagnosis/retry. See $log" | tee -a "$log"
   fi
 done
 

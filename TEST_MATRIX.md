@@ -62,4 +62,6 @@ build. UI ❌ everywhere ⇒ look upstream of the share (cohtml init failing, mi
 
 Record dated observations here as runs happen (newest first):
 
-- _(none yet — `run-test.sh` created 2026-05-31; awaiting first run after the minimal-xbl rebuild)_
+- **2026-05-31 — capture method solved:** on GNOME Wayland only `gnome-screenshot -w` (active window) works (grim/xwd/D-Bus/Xephyr all fail — see memory `gnome-wayland-game-capture`). It captures the FOCUSED window, so the game must be fullscreen+focused. Bare-WineGDK fullscreen (1849x1040) grabs focus → captured fine. **GDK-Proton's borderless 1928x1062 window does NOT grab focus** (GNOME focus-stealing prevention) → `-w` grabs the terminal instead. Need a focus nudge (manual click, or force exclusive fullscreen) for Proton runs.
+- **2026-05-31 — KEY FINDING (patched clang-23 build, capture-mechanism test):** the game renders the **3D world AND a cohtml Ore-UI dialog** (GameInput "missing required component… Install"). So cohtml is NOT fundamentally failing to render — reframes blocker toward GameInput (#8). Needs confirming on vanilla.
+- **2026-05-31 — build pipeline:** Weather-OS/master compiled but `make install` aborted on a Wine idl collision (`not overwriting just created windows.ui.text.core.idl`) before installing ntdll.so → broken install. Pipeline fixed to `make -i install` + never delete tree unless install complete. LukasPAH building.
