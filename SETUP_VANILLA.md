@@ -9,7 +9,7 @@ here per the "document everything" instruction. Approach rationale: [`memory: va
 All runtimes point at **one** game dir so only the runtime varies:
 
 - **Game dir:** `~/Games/minecraft-bedrock/game`
-- **Binary:** `Minecraft.Windows.exe`, 242,760,528 bytes, version **1.26.20** (strings cap at 1.26.20; the same 242 MB exe is in the Lutris dir — verified identical version).
+- **Binary:** `Minecraft.Windows.exe`, 242,760,528 bytes, version **1.26.21.1** (appxmanifest Identity `Version="1.26.2101.0"`; this is the **latest stable** — Bedrock 26.21 hotfix, released 2026-05-14). The same 242 MB exe is in the Lutris dir. (ASCII `strings` shows only `1.26.20`; the real version is in the manifest/wide-char strings.)
 - Per-runtime **prefixes are separate** (a clean prefix per variant), the game dir is shared read-mostly.
 
 ## What's ALREADY present in the game dir (the minimal setup)
