@@ -966,8 +966,10 @@ static void patch_ui_input_iat(void) {
     patch_module_iat(uiInput, apiset, "GetPointerTouchInfo",      (void *)hooked_GetPointerTouchInfo);
 }
 
+static volatile LONG g_subclassed = 0;
 static void subclass_game_window(void) {
     typedef HWND (WINAPI *PFN_FindWindow)(LPCSTR, LPCSTR);
+    if (g_subclassed) return;  /* once only; set on success below */
     HMODULE u32 = GetModuleHandleA("user32.dll");
     if (!u32) return;
     PFN_FindWindow pFW = (PFN_FindWindow)GetProcAddress(u32, "FindWindowA");
@@ -979,10 +981,26 @@ static void subclass_game_window(void) {
     if (!target) { TRACE("Minecraft window not found"); return; }
 
     g_orig_wndproc = (WNDPROC)pfn_SWLP(target, GWLP_WNDPROC, (LONG_PTR)hooked_wndproc);
+    g_subclassed = 1;
     TRACE("Subclassed window %p, orig WndProc=%p", (void *)target, (void *)g_orig_wndproc);
 
     patch_ui_input_iat();
     dump_game_vtable();
+}
+
+/* Deferred installer: poll for the Minecraft window, then subclass it for cohtml clicks.
+ * Lets this DLL deliver the UI-pointer fix WITHOUT being the GameInput provider — so it can
+ * run alongside the real builtin gameinput.dll (which clears the GameInput error screen). */
+static DWORD WINAPI deferred_pointer_thread(LPVOID unused) {
+    typedef HWND (WINAPI *PFN_FindWindow)(LPCSTR, LPCSTR);
+    HMODULE u32 = GetModuleHandleA("user32.dll");
+    PFN_FindWindow pFW = u32 ? (PFN_FindWindow)GetProcAddress(u32, "FindWindowA") : NULL;
+    (void)unused;
+    for (int i = 0; i < 1200 && !g_subclassed; i++) {  /* up to ~120s */
+        if (pFW && pFW(NULL, "Minecraft")) { subclass_game_window(); break; }
+        Sleep(100);
+    }
+    return 0;
 }
 
 static HRESULT STDMETHODCALLTYPE gi_regdev(StubGI *s, StubDevice *dev, GIKind kind, GIDevStatus filter, GIEnumKind ek, void *ctx, GIDeviceCB cb, GIToken *token) {
@@ -1062,7 +1080,10 @@ static HRESULT make_gi(void **out) {
     return S_OK;
 }
 
-__declspec(dllexport) HRESULT __stdcall GameInputCreate(void **out) {
+#ifndef POINTERHOOK_ONLY
+__declspec(dllexport)
+#endif
+HRESULT __stdcall GameInputCreate(void **out) {
     TRACE("GameInputCreate called");
     return make_gi(out);
 }
@@ -1081,6 +1102,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved) {
     if (reason == DLL_PROCESS_ATTACH) {
         TRACE("DLL loaded");
         install_pointer_hooks();
+        CreateThread(NULL, 0, deferred_pointer_thread, NULL, 0, NULL);
     } else if (reason == DLL_PROCESS_DETACH) {
         g_running = FALSE;
     }
