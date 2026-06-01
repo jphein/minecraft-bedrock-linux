@@ -806,6 +806,16 @@ static BOOL WINAPI hooked_GetPointerTouchInfo(UINT32 id, void *info) {
     return FALSE;
 }
 
+/* Wine stubs user32!GetPointerType (returns FALSE). Bedrock probes pointer support
+ * once a GameInput mouse device exists; the failing stub appears to trip the
+ * "missing required component" path. Report PT_MOUSE (4) so the probe succeeds. */
+static BOOL WINAPI hooked_GetPointerType(UINT32 id, DWORD *type) {
+    if (type) *type = 4 /* PT_MOUSE */;
+    static int n = 0;
+    if (++n <= 5) TRACE("GetPointerType #%d id=%u -> PT_MOUSE", n, id);
+    return TRUE;
+}
+
 /* IAT patching for DLLs that import unimplemented functions */
 static void patch_module_iat(HMODULE module, const char *targetDll, const char *funcName, void *replacement) {
     BYTE *base = (BYTE *)module;
@@ -861,10 +871,13 @@ static void install_pointer_hooks(void) {
 
     fn = GetProcAddress(u32, "GetPointerTouchInfo");
     if (fn) inline_hook((void *)fn, (void *)hooked_GetPointerTouchInfo, "GetPointerTouchInfo");
+    /* NOTE: do NOT hook GetPointerType — forcing PT_MOUSE trips Bedrock's GDK
+     * component check and brings back the "missing required component" screen. */
 }
 
 /* Window subclass — tracks WM_POINTER state for GetPointerInfo */
 static WNDPROC g_orig_wndproc = NULL;
+static HWND g_target_hwnd = NULL;   /* set on subclass; used by the click injector */
 static int g_move_count = 0;
 static int g_click_count = 0;
 
@@ -981,6 +994,7 @@ static void subclass_game_window(void) {
     if (!target) { TRACE("Minecraft window not found"); return; }
 
     g_orig_wndproc = (WNDPROC)pfn_SWLP(target, GWLP_WNDPROC, (LONG_PTR)hooked_wndproc);
+    g_target_hwnd = target;
     g_subclassed = 1;
     TRACE("Subclassed window %p, orig WndProc=%p", (void *)target, (void *)g_orig_wndproc);
 
@@ -1098,11 +1112,93 @@ __declspec(dllexport) HRESULT __stdcall DllGetClassObject(REFCLSID c, REFIID r, 
     return CLASS_E_CLASSNOTAVAILABLE;
 }
 
+/* ------------------------------------------------------------------
+ * Scripted click injector
+ *
+ * XTEST/synthetic input does NOT reach the XWayland window under
+ * mutter-Wayland (pointer warp works, button press is dropped), so we
+ * cannot drive the cohtml menu from the host.  Instead we post a proper
+ * WM_POINTER sequence straight to the subclassed window — the same path
+ * the wndproc already feeds to cohtml via GetPointerInfo.  No Wayland,
+ * no XTEST involved.
+ *
+ * Command file: Z:\tmp\mc-inject.txt  (= /tmp/mc-inject.txt), one line
+ * "<screenX> <screenY>".  The file is consumed (deleted) once handled.
+ *
+ * wparam HIWORD carries the low word of POINTER_INFO.pointerFlags, which
+ * update_pointer_state() copies verbatim (then ORs PF_DOWN/PF_UP):
+ *   0x2002 = PF_INRANGE|PF_PRIMARY                       (hover / up)
+ *   0x2016 = PF_INRANGE|PF_INCONTACT|PF_PRIMARY|PF_FIRSTBUTTON (down)
+ * ------------------------------------------------------------------ */
+static void inject_click(HWND hwnd, int x, int y) {
+    typedef BOOL (WINAPI *PFN_SCP)(int, int);
+    typedef UINT (WINAPI *PFN_SI)(UINT, INPUT *, int);
+    HMODULE u32 = GetModuleHandleA("user32.dll");
+    PFN_SCP pSetCursorPos = u32 ? (PFN_SCP)GetProcAddress(u32, "SetCursorPos") : NULL;
+    PFN_SI  pSendInput    = u32 ? (PFN_SI)GetProcAddress(u32, "SendInput") : NULL;
+    (void)hwnd;
+
+    /* The cohtml Ore UI mouse comes from the WineGDK GameInput mouse device, whose
+     * read path uses GetCursorPos() (absolute position) + GetAsyncKeyState(VK_LBUTTON)
+     * (button state).  Both are Wine-internal, so SetCursorPos + SendInput drive them
+     * directly — no Wayland / XTEST involved (XTEST button events are dropped by mutter).
+     * x,y are screen pixels. */
+    int sw = GetSystemMetrics(SM_CXSCREEN);
+    int sh = GetSystemMetrics(SM_CYSCREEN);
+    if (sw <= 0) sw = 1920;
+    if (sh <= 0) sh = 1080;
+
+    if (pSetCursorPos) pSetCursorPos(x, y);
+    Sleep(40);
+
+    if (pSendInput) {
+        INPUT in[3];
+        memset(in, 0, sizeof(in));
+        LONG ax = (LONG)((x * 65535) / (sw - 1));
+        LONG ay = (LONG)((y * 65535) / (sh - 1));
+        in[0].type = INPUT_MOUSE;
+        in[0].mi.dx = ax; in[0].mi.dy = ay;
+        in[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+        pSendInput(1, &in[0], sizeof(INPUT));
+        Sleep(30);
+        memset(in, 0, sizeof(in));
+        in[0].type = INPUT_MOUSE; in[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        pSendInput(1, &in[0], sizeof(INPUT));
+        Sleep(70);
+        in[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        pSendInput(1, &in[0], sizeof(INPUT));
+    }
+
+    TRACE("Injected SendInput click at screen=(%d,%d) [scr %dx%d] SCP=%p SI=%p",
+          x, y, sw, sh, (void *)pSetCursorPos, (void *)pSendInput);
+}
+
+static DWORD WINAPI injector_thread(LPVOID unused) {
+    (void)unused;
+    while (g_running) {
+        Sleep(150);
+        if (!g_target_hwnd) continue;
+        FILE *f = fopen("Z:\\tmp\\mc-inject.txt", "r");
+        if (!f) continue;
+        int x = -1, y = -1;
+        int ok = fscanf(f, "%d %d", &x, &y);
+        fclose(f);
+        remove("Z:\\tmp\\mc-inject.txt");
+        if (ok == 2 && x >= 0 && y >= 0)
+            inject_click(g_target_hwnd, x, y);
+        else
+            TRACE("injector: bad command (ok=%d)", ok);
+    }
+    return 0;
+}
+
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved) {
     if (reason == DLL_PROCESS_ATTACH) {
         TRACE("DLL loaded");
+        g_running = TRUE;
         install_pointer_hooks();
         CreateThread(NULL, 0, deferred_pointer_thread, NULL, 0, NULL);
+        CreateThread(NULL, 0, injector_thread, NULL, 0, NULL);
     } else if (reason == DLL_PROCESS_DETACH) {
         g_running = FALSE;
     }
