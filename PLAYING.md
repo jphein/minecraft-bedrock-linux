@@ -22,18 +22,20 @@ servers show up under **LAN Games**, then launches the game.
 
 ## Connecting to Luna (and the other servers)
 
-With the LAN proxy running, the Tailscale BDS servers appear in **Play → Servers/Friends → LAN Games**:
-just select **Luna** and **Join** — no address typing.
+With the LAN proxy running, your remote BDS servers appear in **Play → Servers/Friends → LAN Games**:
+just select one and **Join** — no address typing.
 
-| Name              | Address                | Note            |
-|-------------------|------------------------|-----------------|
-| Luna              | `REDACTED-IP:8890`    | Luna World, Creative |
-| Redacted Server | `REDACTED-IP:19132`   |                 |
-| donkey            | `REDACTED-IP:8888`    |                 |
-| Galaxy Tab        | `REDACTED-IP:19132` | redacted-host (offline until powered on) |
+Put your real server addresses in **`scripts/servers.conf`** (copy
+`scripts/servers.conf.example`). That file is **gitignored** so your private (e.g. Tailscale) IPs are
+never committed. One per line:
 
-Server list lives in `scripts/play-bedrock.sh` (`SERVERS=(...)`). To add a server directly in-game
-instead: **Add Server** → address + port → Save → Join.
+```
+# remoteIP:remotePort:localPort:Name
+100.x.y.z:19132:19132:My Server
+100.x.y.z:8890:8890:Another Server
+```
+
+To add a server directly in-game instead: **Add Server** → address + port → Save → Join.
 
 ## Input
 

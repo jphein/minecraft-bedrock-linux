@@ -35,3 +35,4 @@ stubs/*/*.a
 stubs/*/*.o
 stubs/**/*.o
 stubs/**/*.dll
+scripts/servers.conf

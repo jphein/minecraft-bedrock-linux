@@ -9,7 +9,7 @@ Usage:
     python3 lan-proxy.py <server-ip>:<server-port>:<local-port>:<name> [...]
 
 Example:
-    python3 lan-proxy.py REDACTED-IP:19132:19132:"Redacted Server" REDACTED-IP:8888:8888:donkey REDACTED-IP:8890:8890:Luna
+    python3 lan-proxy.py 100.x.y.z:19132:19132:"My Server" 100.x.y.z:8890:8890:"Another Server"
 """
 import argparse
 import signal

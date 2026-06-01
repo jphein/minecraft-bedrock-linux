@@ -24,13 +24,18 @@ PREFIX="${PREFIX_DIR:-$HOME/Games/minecraft-bedrock/prefix}"
 REPO="$HOME/Projects/minecraft-bedrock-linux"
 OPT="$PREFIX/drive_c/users/$(whoami)/AppData/Roaming/Minecraft Bedrock/Users/Shared/games/com.mojang/minecraftpe/options.txt"
 
-# Remote BDS servers to advertise as LAN games:  remoteIP:remotePort:localPort:Name
-SERVERS=(
-  "REDACTED-IP:19132:19132:Redacted Server"
-  "REDACTED-IP:8888:8888:donkey"
-  "REDACTED-IP:8890:8890:Luna"
-  "REDACTED-IP:19132:19134:Galaxy Tab"   # redacted-host (offline until powered on; fix IP/port if needed)
-)
+# Remote BDS servers to advertise as LAN games. Real addresses live in the
+# gitignored scripts/servers.conf (copy scripts/servers.conf.example) so private
+# (e.g. Tailscale) IPs are never committed. One per line: remoteIP:remotePort:localPort:Name
+SERVERS=()
+SERVERS_CONF="$REPO/scripts/servers.conf"
+if [ -f "$SERVERS_CONF" ]; then
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in \#*) continue ;; esac
+    SERVERS+=("$line")
+  done < "$SERVERS_CONF"
+fi
 
 WINDOWED=0
 USE_PROXY=1
@@ -50,12 +55,14 @@ pkill -9 -f 'lan-proxy\.py'           2>/dev/null || true
 sleep 3
 
 # ---- 2. LAN proxy for remote (Tailscale) servers ----------------------------
-if [ "$USE_PROXY" = 1 ]; then
+if [ "$USE_PROXY" = 1 ] && [ "${#SERVERS[@]}" -gt 0 ]; then
   echo "[play] starting LAN proxy for ${#SERVERS[@]} servers..."
   setsid nohup python3 "$REPO/scripts/lan-proxy.py" "${SERVERS[@]}" \
       >/tmp/lan-proxy.log 2>&1 </dev/null &
   disown 2>/dev/null || true
   sleep 1
+elif [ "$USE_PROXY" = 1 ]; then
+  echo "[play] no servers configured (copy scripts/servers.conf.example -> scripts/servers.conf); skipping LAN proxy"
 fi
 
 # ---- 3. graphics mode --------------------------------------------------------
