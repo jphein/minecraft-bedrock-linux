@@ -39,11 +39,15 @@ fi
 
 WINDOWED=0
 USE_PROXY=1
+USE_PERF=0   # gamemoderun + ionice
+USE_HUD=0    # MangoHud overlay
 for arg in "$@"; do
   case "$arg" in
     --windowed|-w) WINDOWED=1 ;;
     --no-proxy)    USE_PROXY=0 ;;
     --fullscreen|-f) WINDOWED=0 ;;
+    --perf)        USE_PERF=1 ;;
+    --hud)         USE_HUD=1 ;;
   esac
 done
 
@@ -82,5 +86,22 @@ export WINEPREFIX="$PREFIX" WINEESYNC=1 WINEFSYNC=1 WINEDEBUG=-all
 # builtin gameinput (clears error screen w/ no redist); native dwmapi proxy; stub the
 # unimplemented ntuser private apisets.
 export WINEDLLOVERRIDES="d3d11,dxgi=n;gameinput=b;dwmapi=n;api-ms-win-rtcore-ntuser-private-l1-1-1=n;ext-ms-win-ntuser-private-l1-1-1=n"
-echo "[play] launching Minecraft Bedrock... (Servers tab / LAN Games for Luna)"
-exec "$WINEGDK/bin/wine" "$GAME_DIR/Minecraft.Windows.exe"
+
+# DXVK tuning for the GTX 1650 — always applied (safe, beneficial). The NVIDIA
+# Vulkan pipeline cache is automatic (~/.cache/nvidia); DXVK 2.7 has no state
+# cache and __GL_*/VKD3D_* env vars don't affect this D3D11/DXVK path.
+[ -f "$REPO/config/dxvk.conf" ] && export DXVK_CONFIG_FILE="$REPO/config/dxvk.conf"
+
+# Build the launch command (order: ionice -> gamemoderun -> mangohud -> wine).
+CMD=( "$WINEGDK/bin/wine" "$GAME_DIR/Minecraft.Windows.exe" )
+if [ "$USE_HUD" = 1 ] && command -v mangohud >/dev/null 2>&1; then
+  export MANGOHUD_CONFIG="fps,frametimes,cpu_temp,gpu_temp,ram,vram"
+  CMD=( mangohud "${CMD[@]}" ); echo "[play] MangoHud overlay on"
+fi
+if [ "$USE_PERF" = 1 ]; then
+  command -v gamemoderun >/dev/null 2>&1 && { CMD=( gamemoderun "${CMD[@]}" ); echo "[play] gamemode on (GPU perf level + ioprio)"; }
+  command -v ionice      >/dev/null 2>&1 && CMD=( ionice -c2 -n0 "${CMD[@]}" )
+fi
+
+echo "[play] launching Minecraft Bedrock... (Servers tab / LAN Games for your server)"
+exec "${CMD[@]}"
