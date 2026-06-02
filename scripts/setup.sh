@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-WINEGDK_DIR="${WINEGDK_DIR:-$HOME/Projects/WineGDK/install}"
+WINEGDK_DIR="${WINEGDK_DIR:-$HOME/Projects/WineGDK/install-clang23}"
 GAME_DIR="${GAME_DIR:-$HOME/Games/minecraft-bedrock/game}"
 PREFIX_DIR="${PREFIX_DIR:-$HOME/Games/minecraft-bedrock/prefix}"
 
@@ -29,12 +29,18 @@ if [[ ! -x "$WINE" ]]; then
     exit 1
 fi
 
-# 1. Replace XCurl.dll
-# Downloads mingw curl from MSYS2 repo. Update version as needed:
-# https://repo.msys2.org/mingw/mingw64/ (search for mingw-w64-x86_64-curl)
+# Verify game version (must be 1.26.21+, not the old 1.26.3)
+EXE_SIZE=$(stat -c%s "$GAME_DIR/Minecraft.Windows.exe")
+if [[ "$EXE_SIZE" -lt 200000000 ]]; then
+    echo "WARNING: Minecraft.Windows.exe is only $(( EXE_SIZE / 1048576 ))MB."
+    echo "Expected 230MB+ for version 1.26.21. You may have the old 1.26.3 binary."
+    echo "Re-extract from the Windows VM with: scripts/host-copy-from-vm.sh"
+fi
+
+# 1. Replace XCurl.dll with mingw curl
 CURL_PKG="mingw-w64-x86_64-curl-8.12.1-1-any.pkg.tar.zst"
 CURL_URL="https://repo.msys2.org/mingw/mingw64/$CURL_PKG"
-echo "[1/7] Replacing XCurl.dll with mingw curl..."
+echo "[1/10] Replacing XCurl.dll with mingw curl..."
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 cd "$WORK_DIR"
@@ -47,18 +53,10 @@ rm -rf mingw64
 echo "  Done."
 
 # 2. Download XCurl dependency DLLs from MSYS2
-# WineGDK is plain Wine -- it does NOT bundle the mingw runtime libraries that
-# the MSYS2 curl DLL (now XCurl.dll) links against. We download each dependency
-# package from the MSYS2 mingw64 repository and copy the needed DLLs into GAME_DIR.
-#
-# To update versions: browse https://repo.msys2.org/mingw/mingw64/ and look for
-# each package name. If a DLL filename changes (e.g. libngtcp2-17.dll), update
-# both the package line AND the dll name in XCURL_DEPS below.
-echo "[2/7] Downloading XCurl dependency DLLs from MSYS2..."
+echo "[2/10] Downloading XCurl dependency DLLs from MSYS2..."
 
 MSYS2_BASE="https://repo.msys2.org/mingw/mingw64"
 
-# Format: "package-filename.tar.zst|dll1,dll2,..."
 XCURL_DEPS=(
     "mingw-w64-x86_64-libiconv-1.19-1-any.pkg.tar.zst|libiconv-2.dll,libcharset-1.dll"
     "mingw-w64-x86_64-brotli-1.1.0-2-any.pkg.tar.zst|libbrotlidec.dll,libbrotlicommon.dll"
@@ -111,39 +109,55 @@ else
 fi
 
 # 3. SSL certificates
-echo "[3/7] Setting up SSL certificates..."
+echo "[3/10] Setting up SSL certificates..."
 mkdir -p "$(dirname "$GAME_DIR")/etc/ssl/certs/"
 curl -sL -o "$(dirname "$GAME_DIR")/etc/ssl/certs/ca-bundle.crt" https://curl.se/ca/cacert.pem
 echo "  Done."
 
-# 4. Copy xgameruntime DLLs
-echo "[4/7] Copying xgameruntime DLLs to game directory..."
-for f in xgameruntime.dll xgameruntime.dll.threading; do
-    if [[ -f "$WINE_LIB/$f" ]]; then
-        cp "$WINE_LIB/$f" "$GAME_DIR/"
-    else
-        echo "  WARNING: $f not found in $WINE_LIB, skipping."
-    fi
-done
+# 4. Copy xgameruntime.dll from WineGDK
+echo "[4/10] Copying xgameruntime.dll to game directory..."
+if [[ -f "$WINE_LIB/xgameruntime.dll" ]]; then
+    cp "$WINE_LIB/xgameruntime.dll" "$GAME_DIR/"
+    echo "  Done."
+else
+    echo "  WARNING: xgameruntime.dll not found in $WINE_LIB"
+fi
+# xgameruntime.dll.threading is the native Microsoft binary — must come from
+# the Windows VM extraction, not from WineGDK. Check it exists.
+if [[ ! -f "$GAME_DIR/xgameruntime.dll.threading" ]]; then
+    echo "  WARNING: xgameruntime.dll.threading not found in $GAME_DIR"
+    echo "  This native Microsoft DLL is required. Copy it from the Windows VM."
+fi
+
+# 5. Create Wine prefix
+echo "[5/10] Creating Wine prefix..."
+mkdir -p "$PREFIX_DIR"
+WINEPREFIX="$PREFIX_DIR" "$WINE" wineboot -i 2>/dev/null
 echo "  Done."
 
-# 5. Create Wine prefix and install GameInputRedist
-echo "[5/7] Creating Wine prefix and installing GameInputRedist..."
-mkdir -p "$PREFIX_DIR"
+# 6. Install GameInput via msiextract (msiexec hangs under Wine)
+echo "[6/10] Installing GameInput redistributable..."
 if [[ -f "$GAME_DIR/Installers/GameInputRedist.msi" ]]; then
-    WINEPREFIX="$PREFIX_DIR" "$WINE" msiexec /i "$GAME_DIR/Installers/GameInputRedist.msi" /qn 2>/dev/null || true
-    echo "  Done."
+    if command -v msiextract &>/dev/null; then
+        GITMP=$(mktemp -d)
+        (cd "$GITMP" && msiextract "$GAME_DIR/Installers/GameInputRedist.msi" 2>/dev/null)
+        find "$GITMP" -name '*.dll' -path '*/x64/*' -exec cp {} "$PREFIX_DIR/drive_c/windows/system32/" \;
+        find "$GITMP" -name '*.exe' -path '*/x64/*' -exec cp {} "$PREFIX_DIR/drive_c/windows/system32/" \;
+        rm -rf "$GITMP"
+        WINEPREFIX="$PREFIX_DIR" "$WINE" reg add "HKLM\\SOFTWARE\\Microsoft\\GameInput" /v RedistDir /t REG_SZ /d "C:\\windows\\system32\\" /f 2>/dev/null
+        WINEPREFIX="$PREFIX_DIR" "$WINE" reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\GameInputRedistService" /v ImagePath /t REG_SZ /d "C:\\windows\\system32\\GameInputRedistService.exe" /f 2>/dev/null
+        WINEPREFIX="$PREFIX_DIR" "$WINE" reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\GameInputRedistService" /v Type /t REG_DWORD /d 16 /f 2>/dev/null
+        WINEPREFIX="$PREFIX_DIR" "$WINE" reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\GameInputRedistService" /v Start /t REG_DWORD /d 3 /f 2>/dev/null
+        echo "  Done."
+    else
+        echo "  WARNING: msiextract not found. Install with: sudo apt install msitools"
+    fi
 else
     echo "  GameInputRedist.msi not found, skipping."
 fi
 
-# 6. Build and install midlproxystub (fixes ObjectStublessClient4 crash)
-# Wine's PE-only mode fails to resolve combase.dll's forwarders to rpcrt4.dll.
-# GameInputRedist.dll imports ObjectStublessClient3/4 from the
-# api-ms-win-core-com-midlproxystub API set, which maps to combase.dll,
-# which has broken forwarders -> crash.
-# Fix: provide a real DLL that Wine loads directly.
-echo "[6/7] Building and installing midlproxystub (ObjectStublessClient fix)..."
+# 7. Build and install midlproxystub (fixes ObjectStublessClient4 crash)
+echo "[7/10] Building and installing midlproxystub..."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STUBS_DIR="$SCRIPT_DIR/../stubs/midlproxystub"
 MIDL_DLL="api-ms-win-core-com-midlproxystub-l1-1-0.dll"
@@ -155,22 +169,60 @@ if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
 else
     echo "  WARNING: x86_64-w64-mingw32-gcc not found."
     echo "  Install with: sudo apt install gcc-mingw-w64-x86-64"
-    echo "  Then re-run or manually: cd $STUBS_DIR && make && make deploy"
 fi
 
-# 7. Patch graphics_mode to avoid deferred renderer crash
-# Minecraft's Deferred Rendering (graphics_mode:2) has a race condition under Wine:
-# rendering threads access MaterialDefinition objects before they are fully initialized,
-# causing a NULL pointer crash. The game auto-resets this to 2 on each launch, so
-# launch.sh patches it every time too.
-echo "[7/7] Patching graphics options (disable deferred renderer)..."
+# 8. Install DXVK (Vulkan-based D3D11, much faster than wined3d OpenGL)
+echo "[8/10] Installing DXVK..."
+DXVK_VERSION="2.7.1"
+DXVK_DIR="/tmp/dxvk-$DXVK_VERSION"
+if [[ ! -d "$DXVK_DIR" ]]; then
+    echo "  Downloading DXVK $DXVK_VERSION..."
+    curl -sL "https://github.com/doitsujin/dxvk/releases/download/v$DXVK_VERSION/dxvk-$DXVK_VERSION.tar.gz" | tar xz -C /tmp/
+fi
+if [[ -f "$DXVK_DIR/x64/d3d11.dll" ]]; then
+    cp "$DXVK_DIR/x64/d3d11.dll" "$PREFIX_DIR/drive_c/windows/system32/"
+    cp "$DXVK_DIR/x64/dxgi.dll" "$PREFIX_DIR/drive_c/windows/system32/"
+    WINEPREFIX="$PREFIX_DIR" "$WINE" reg add "HKCU\\Software\\Wine\\DllOverrides" /v d3d11 /t REG_SZ /d native /f 2>/dev/null
+    WINEPREFIX="$PREFIX_DIR" "$WINE" reg add "HKCU\\Software\\Wine\\DllOverrides" /v dxgi /t REG_SZ /d native /f 2>/dev/null
+    echo "  Done (DXVK $DXVK_VERSION)."
+else
+    echo "  WARNING: DXVK not found at $DXVK_DIR"
+fi
+
+# 9. Build and install GameInput stub (bypasses "missing required component" dialog)
+echo "[9/11] Building GameInput stub..."
+GAMEINPUT_DIR="$SCRIPT_DIR/../stubs/gameinput"
+if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
+    (cd "$GAMEINPUT_DIR" && make clean && make)
+    cp "$GAMEINPUT_DIR/GameInput.dll" "$PREFIX_DIR/drive_c/windows/system32/gameinput.dll"
+    echo "  Done."
+else
+    echo "  WARNING: x86_64-w64-mingw32-gcc not found."
+    echo "  Install with: sudo apt install gcc-mingw-w64-x86-64"
+fi
+
+# 10. Build and install Windows App Runtime bootstrapper stub
+echo "[10/11] Building Windows App Runtime bootstrapper stub..."
+BOOTSTRAP_DIR="$SCRIPT_DIR/../stubs/winappruntime-bootstrap"
+BOOTSTRAP_DLL="Microsoft.WindowsAppRuntime.Bootstrap.dll"
+if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
+    (cd "$BOOTSTRAP_DIR" && make clean && make)
+    cp "$GAME_DIR/$BOOTSTRAP_DLL" "$GAME_DIR/$BOOTSTRAP_DLL.bak" 2>/dev/null || true
+    cp "$BOOTSTRAP_DIR/$BOOTSTRAP_DLL" "$GAME_DIR/$BOOTSTRAP_DLL"
+    echo "  Done."
+else
+    echo "  WARNING: x86_64-w64-mingw32-gcc not found."
+    echo "  Install with: sudo apt install gcc-mingw-w64-x86-64"
+fi
+
+# 11. Patch graphics_mode to avoid deferred renderer crash
+echo "[11/11] Patching graphics options..."
 OPTIONS_FILE="$PREFIX_DIR/drive_c/users/$(whoami)/AppData/Roaming/Minecraft Bedrock/Users/Shared/games/com.mojang/minecraftpe/options.txt"
 if [[ -f "$OPTIONS_FILE" ]]; then
     sed -i 's/^graphics_mode:[0-9]\+/graphics_mode:0/' "$OPTIONS_FILE"
-    echo "  Set graphics_mode:0 (Classic renderer) to avoid material crash."
+    echo "  Set graphics_mode:0 (Classic renderer)."
 else
-    echo "  options.txt not found yet (will be created on first launch)."
-    echo "  launch.sh will patch it automatically."
+    echo "  options.txt not found yet (created on first launch). launch.sh patches it automatically."
 fi
 
 echo ""

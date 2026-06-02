@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Minecraft Bedrock
+GenericName=Minecraft Bedrock Edition (1.26.21, WineGDK)
+Comment=Latest Bedrock on Linux — gamepad + Luna server via LAN proxy
+Exec=/home/jp/Projects/minecraft-bedrock-linux/scripts/play-bedrock.sh
+Icon=/home/jp/.local/share/icons/minecraft-bedrock.png
+Terminal=false
+Categories=Game;
+Keywords=minecraft;bedrock;mcpe;luna;
+StartupNotify=true
+Actions=Windowed;NoProxy;
+
+[Desktop Action Windowed]
+Name=Play (Windowed)
+Exec=/home/jp/Projects/minecraft-bedrock-linux/scripts/play-bedrock.sh --windowed
+
+[Desktop Action NoProxy]
+Name=Play (no LAN proxy)
+Exec=/home/jp/Projects/minecraft-bedrock-linux/scripts/play-bedrock.sh --no-proxy

@@ -1,0 +1,3 @@
+LIBRARY "ext-ms-win-ntuser-private-l1-1-1.dll"
+EXPORTS
+    ord_2546 @2546 NONAME

@@ -1,0 +1,5 @@
+# Copy this to servers.conf and put your real server addresses here.
+# servers.conf is gitignored so your private (e.g. Tailscale) IPs never get committed.
+# Format: remoteIP:remotePort:localPort:Name
+# 100.x.y.z:19132:19132:My Server
+# 100.x.y.z:8890:8890:Another Server

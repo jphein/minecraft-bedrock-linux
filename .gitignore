@@ -33,3 +33,6 @@ __pycache__/
 stubs/*/*.dll
 stubs/*/*.a
 stubs/*/*.o
+stubs/**/*.o
+stubs/**/*.dll
+scripts/servers.conf

@@ -1,0 +1,4 @@
+LIBRARY "api-ms-win-rtcore-ntuser-private-l1-1-1.dll"
+EXPORTS
+    ord_2503 @2503 NONAME
+    ord_2505 @2505 NONAME

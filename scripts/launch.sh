@@ -3,14 +3,9 @@
 
 set -euo pipefail
 
-WINEGDK_DIR="${WINEGDK_DIR:-$HOME/Projects/WineGDK/install}"
+WINEGDK_DIR="${WINEGDK_DIR:-$HOME/Projects/WineGDK/install-clang23}"
 GAME_DIR="${GAME_DIR:-$HOME/Games/minecraft-bedrock/game}"
 PREFIX_DIR="${PREFIX_DIR:-$HOME/Games/minecraft-bedrock/prefix}"
-
-export WINEPREFIX="$PREFIX_DIR"
-# Force Wine to use WineGDK's builtin gameinputredist.dll instead of
-# Microsoft's redistributable, which crashes under Wine.
-export WINEDLLOVERRIDES="GameInputRedist=b"
 
 WINE="$WINEGDK_DIR/bin/wine"
 if [[ ! -x "$WINE" ]]; then
@@ -19,14 +14,29 @@ if [[ ! -x "$WINE" ]]; then
     exit 1
 fi
 
-# Work around a race condition in Minecraft's Deferred Rendering / PBR pipeline:
-# When graphics_mode is set to 2 (Deferred/RTX), rendering threads may access
-# MaterialDefinition objects before they are fully initialized, causing a crash.
-# Setting graphics_mode:0 (Classic) avoids the deferred material paths entirely.
-# The game auto-resets graphics_mode to 2 each launch, so we must patch every time.
+export WINEPREFIX="$PREFIX_DIR"
+
+# DXVK: use native d3d11/dxgi (Vulkan backend, much faster than wined3d GL)
+# GameInput: our custom stub with pointer hooks + WndProc subclass
+# ntuser-private: stub with ordinal exports 2503/2505 (Microsoft.InputStateManager.dll needs these)
+export WINEDLLOVERRIDES="d3d11,dxgi=n;GameInput=n;api-ms-win-rtcore-ntuser-private-l1-1-1=n;ext-ms-win-ntuser-private-l1-1-1=n"
+
+# Wine synchronization: esync + fsync for lower overhead
+export WINEESYNC=1
+export WINEFSYNC=1
+
+# Patch graphics_mode to avoid deferred renderer crash.
+# The game resets this to 2 each launch, so we patch every time.
 OPTIONS_FILE="$PREFIX_DIR/drive_c/users/$(whoami)/AppData/Roaming/Minecraft Bedrock/Users/Shared/games/com.mojang/minecraftpe/options.txt"
 if [[ -f "$OPTIONS_FILE" ]]; then
     sed -i 's/^graphics_mode:[0-9]\+/graphics_mode:0/' "$OPTIONS_FILE"
 fi
 
-exec "$WINE" "$GAME_DIR/Minecraft.Windows.exe"
+# MangoHUD: FPS overlay (disable with MANGOHUD=0)
+if [[ "${MANGOHUD:-1}" == "1" ]] && command -v mangohud &>/dev/null; then
+    export MANGOHUD=1
+    export MANGOHUD_CONFIG="fps,frametime,gpu_temp,cpu_temp,ram,vram"
+    exec mangohud "$WINE" "$GAME_DIR/Minecraft.Windows.exe"
+else
+    exec "$WINE" "$GAME_DIR/Minecraft.Windows.exe"
+fi
