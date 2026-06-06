@@ -1014,6 +1014,13 @@ static DWORD WINAPI deferred_pointer_thread(LPVOID unused) {
         if (pFW && pFW(NULL, "Minecraft")) { subclass_game_window(); break; }
         Sleep(100);
     }
+    /* Bedrock sets the WM_MOUSE gate (game_obj->0x8->0xC0) during late input init,
+     * ~5s after the window appears. Clear it again here so mouse clicks reach cohtml. */
+    if (g_subclassed) {
+        Sleep(5000);
+        TRACE("deferred gate re-check (5s post-subclass)");
+        dump_game_vtable();
+    }
     return 0;
 }
 

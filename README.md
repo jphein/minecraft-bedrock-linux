@@ -2,13 +2,13 @@
 
 Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraft Bedrock on Ubuntu using [WineGDK](https://github.com/Weather-OS/WineGDK), a Wine fork with native GDK (Game Development Kit) support.
 
-> **Status: PLAYABLE (2026-05-31)** — Bedrock 1.26.21 runs on WineGDK + DXVK: the **menu renders**, **gamepad works** (Xbox / Stadia / PS3), **keyboard works**, and it **connects to remote BDS servers** (advertised as LAN games by the included proxy). Confirmed in real use. The one thing still broken is **mouse clicks in the cohtml menu** — navigate with a controller or the keyboard. See [`PLAYING.md`](PLAYING.md) for how to play and [`ATTEMPTS.md`](ATTEMPTS.md) for the full investigation.
+> **Status: PLAYABLE (2026-06-06)** — Bedrock 1.26.21 runs on WineGDK + DXVK: the **menu renders**, **gamepad works** (Xbox / Stadia / PS3), **keyboard works**, **mouse clicks work** in the menu, and it **connects to remote BDS servers** (advertised as LAN games by the included proxy). Confirmed in real use. See [`PLAYING.md`](PLAYING.md) for how to play and [`ATTEMPTS.md`](ATTEMPTS.md) for the full investigation.
 >
 > **Quick start:** launch **"Minecraft Bedrock"** from the GNOME dash (or run `scripts/play-bedrock.sh [--windowed]`), connect a controller *before* launching, and join your server from **LAN Games**. Configure servers in the gitignored `scripts/servers.conf` (copy `scripts/servers.conf.example`).
 
 > **Known Limitations & Caveats**
 >
-> - **Mouse clicks don't register in the menu** — navigate with the **keyboard** (arrows/Tab/Enter) or a **gamepad**. (In-world mouse-look works.) Root cause: Bedrock's pointer input needs either a GameInput mouse device — which trips the GDK "missing required component" screen — or `Microsoft.UI.Input.dll`, which doesn't load under Wine here. Tracked in [#8](https://github.com/jphein/minecraft-bedrock-linux/issues/8)/[#9](https://github.com/jphein/minecraft-bedrock-linux/issues/9).
+> - **Mouse click latency on first session** — mouse clicks work, but only after ~5s while the dwmapi hook clears Bedrock's internal input gate. Nothing to do — just wait for the menu to fully load before clicking.
 > - **Intermittent "missing required component" error screen on launch** — a ~50/50 GDK component-check race. Just relaunch.
 > - **Silent "no window" on launch** — leftover `lan-proxy.py` / wineserver / game processes from a previous run make the game hang before rendering. `scripts/play-bedrock.sh` cleans these up automatically before launching.
 > - **Connect a controller *before* launching** — GameInput enumerates devices at startup. Xbox/Stadia go through XInput; PS3/generic pads through DirectInput.
@@ -31,9 +31,9 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | GPU Tested | NVIDIA GeForce GTX 1650 (TU117), Driver 595.58.03 |
 | Forks | [jphein/WineGDK](https://github.com/jphein/WineGDK), [jphein/GDK-Proton](https://github.com/jphein/GDK-Proton) |
 
-## Current Status (2026-05-31)
+## Current Status (2026-06-06)
 
-**PLAYABLE.** Minecraft Bedrock 1.26.21 runs on Ubuntu Linux via WineGDK + DXVK — menu renders, gamepad + keyboard work, connects to self-hosted BDS servers. Played end-to-end. Current build:
+**PLAYABLE.** Minecraft Bedrock 1.26.21 runs on Ubuntu Linux via WineGDK + DXVK — menu renders, **mouse + gamepad + keyboard all work**, connects to self-hosted BDS servers. Played end-to-end. Current build:
 
 | Build | Install Path | Notes |
 |-------|-------------|-------|
@@ -43,13 +43,13 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 > **Build base:** WineGDK source on branch **`wip/input-xbl`** (tracks `LukasPAH/WineGDK minimal-xbl`) plus our input fixes: gamepad `GetCurrentReading` (XInput + DInput8) and the mouse-device handling. GDK-Proton is current with upstream but **dead for 1.26.x** (no D3D device) — bare WineGDK is the path.
 
 ### What works
-- **Menu renders** (cohtml Ore UI) and is fully navigable by **keyboard** and **gamepad**.
+- **Menu renders** (cohtml Ore UI) and is fully navigable by **mouse**, **keyboard**, and **gamepad**.
+- **Mouse clicks in the menu** — work after ~5s while the dwmapi hook clears Bedrock's internal input gate. Just wait for the menu to finish loading before clicking.
 - **Gamepad** — Xbox / Stadia / PS3 controllers (XInput + DirectInput paths). Connect *before* launching.
 - **3D world** renders (DXVK d3d11 + vkd3d-proton d3d12), audio, in-world mouse-look.
 - **Multiplayer to self-hosted BDS servers** — advertised as LAN games via `scripts/lan-proxy.py`; one-shot launch via `scripts/play-bedrock.sh` + GNOME dash entry.
 
 ### What does NOT work
-- **Mouse clicks in the menu** — use keyboard/gamepad. Bedrock's pointer input wants a GameInput mouse device (trips the GDK "missing required component" screen) or `Microsoft.UI.Input.dll` (doesn't load under Wine). Tracking: [#8](https://github.com/jphein/minecraft-bedrock-linux/issues/8), [#9](https://github.com/jphein/minecraft-bedrock-linux/issues/9).
 - **Microsoft / Xbox Live login** — no sign-in, so no Realms or featured servers.
 - **Note:** an intermittent GDK component-check race shows the "missing required component" screen on ~half of launches — just relaunch.
 
