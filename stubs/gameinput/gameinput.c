@@ -890,7 +890,7 @@ static int g_ptr_move_count = 0;
 static volatile BOOL g_iat_patched = FALSE;
 static void patch_ui_input_iat(void);
 
-static void **g_mouse_gate_ptr = NULL;
+static void **g_mouse_gate_ptr = NULL;  /* points to game_obj->0x8->0xC0; found once at 5s */
 
 static LRESULT CALLBACK hooked_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (!g_iat_patched) {
@@ -915,6 +915,8 @@ static LRESULT CALLBACK hooked_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
                     g_ptr_move_count, LOWORD(wp), HIWORD(wp),
                     (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
         }
+        /* WM_POINTER events don't need gate swapping — cohtml uses WM_MOUSE buttons
+         * for click handling (GetPointerInfo is never called in practice). */
     }
 
     if (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST) {
@@ -930,14 +932,30 @@ static LRESULT CALLBACK hooked_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
                     (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
         }
 
-        /* Gate bypass handled by permanent clear in dump_game_vtable */
+        /* Gate check in vtable[16] is patched at 5s — no per-event swap needed. */
     }
 
     if (!g_orig_wndproc) return DefWindowProcW(hwnd, msg, wp, lp);
+
+    /* For mouse button events: call twice.
+     * First call (gate non-NULL): GameInput path runs — records button state, camera unaffected.
+     * Second call (gate NULL): Win32 path runs — cohtml receives the click.
+     * WM_MOUSEMOVE is not doubled — camera update via GameInput must run uninterrupted. */
+    if ((msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP ||
+         msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP ||
+         msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP) &&
+        g_mouse_gate_ptr && *g_mouse_gate_ptr) {
+        pfn_CWPW(g_orig_wndproc, hwnd, msg, wp, lp);  /* GameInput path */
+        void *saved = *g_mouse_gate_ptr;
+        *g_mouse_gate_ptr = NULL;
+        LRESULT r = pfn_CWPW(g_orig_wndproc, hwnd, msg, wp, lp);  /* Win32/cohtml path */
+        *g_mouse_gate_ptr = saved;
+        return r;
+    }
     return pfn_CWPW(g_orig_wndproc, hwnd, msg, wp, lp);
 }
 
-static void dump_game_vtable(void) {
+static void find_mouse_gate(void) {
     void **game_obj_slot = (void **)0x14dce0898ULL;
     void *game_obj = *game_obj_slot;
     if (!game_obj) { TRACE("game_obj is NULL"); return; }
@@ -950,20 +968,15 @@ static void dump_game_vtable(void) {
     for (int i = 10; i <= 20; i++)
         TRACE("  vtable[%d] (offset 0x%x) = %p", i, i*8, vtable[i]);
 
-    /* Check the field that gates WM_MOUSE handling:
-     * game_obj->0x8 is params_struct->field[0] in the dispatch.
-     * vtable[16] checks (game_obj->0x8)->0xC0 — if non-NULL, skips ALL mouse input. */
+    /* Locate the WM_MOUSE gate: game_obj->0x8->0xC0.
+     * vtable[16] checks this field — if non-NULL it skips Win32 mouse (uses GameInput instead).
+     * We store the pointer so hooked_wndproc can temporarily null it per-event rather than
+     * clearing it permanently (which would disconnect gamepad and mouse-look). */
     void *field_0x8 = *(void **)((char *)game_obj + 0x8);
     TRACE("game_obj->0x8 = %p", field_0x8);
     if (field_0x8) {
-        void **gate_ptr = (void **)((char *)field_0x8 + 0xC0);
-        void *gate_field = *gate_ptr;
-        if (gate_field) {
-            TRACE("game_obj->0x8->0xC0 = %p — clearing to enable WM_MOUSE", gate_field);
-            *gate_ptr = NULL;
-        } else {
-            TRACE("game_obj->0x8->0xC0 = NULL (mouse already OK)");
-        }
+        g_mouse_gate_ptr = (void **)((char *)field_0x8 + 0xC0);
+        TRACE("mouse gate ptr: %p (value %p)", (void *)g_mouse_gate_ptr, *g_mouse_gate_ptr);
     }
 }
 
@@ -999,7 +1012,8 @@ static void subclass_game_window(void) {
     TRACE("Subclassed window %p, orig WndProc=%p", (void *)target, (void *)g_orig_wndproc);
 
     patch_ui_input_iat();
-    dump_game_vtable();
+    /* Do NOT find_mouse_gate() here — GameInput is still initializing at this point
+     * and the gate pointer may not be valid yet. The deferred thread does it at 5s. */
 }
 
 /* Deferred installer: poll for the Minecraft window, then subclass it for cohtml clicks.
@@ -1015,11 +1029,13 @@ static DWORD WINAPI deferred_pointer_thread(LPVOID unused) {
         Sleep(100);
     }
     /* Bedrock sets the WM_MOUSE gate (game_obj->0x8->0xC0) during late input init,
-     * ~5s after the window appears. Clear it again here so mouse clicks reach cohtml. */
+     * ~5s after the window appears. Find and store the gate ptr here — hooked_wndproc
+     * will do a per-event temporary clear so cohtml gets WM_POINTER without permanently
+     * disconnecting GameInput (which would break gamepad and mouse-look). */
     if (g_subclassed) {
         Sleep(5000);
-        TRACE("deferred gate re-check (5s post-subclass)");
-        dump_game_vtable();
+        TRACE("finding mouse gate (5s post-subclass)");
+        find_mouse_gate();
     }
     return 0;
 }
