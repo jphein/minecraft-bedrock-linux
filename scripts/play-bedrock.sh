@@ -105,17 +105,5 @@ fi
 
 echo "[play] launching Minecraft Bedrock... (Servers tab / LAN Games for your server)"
 
-# GNOME Shell on Wayland matches XWayland windows by _GTK_APPLICATION_ID.
-# Set it on the Minecraft X11 window ~6s after launch so the dash icon stays
-# attached instead of becoming a generic cog.
-(
-  sleep 6
-  WID=$(xdotool search --name "Minecraft" 2>/dev/null | head -1)
-  if [ -n "$WID" ]; then
-    xprop -id "$WID" -f _GTK_APPLICATION_ID 8s \
-      -set _GTK_APPLICATION_ID "minecraft-bedrock" 2>/dev/null \
-      && echo "[play] set _GTK_APPLICATION_ID=minecraft-bedrock on window $WID"
-  fi
-) &
 
 exec "${CMD[@]}"
