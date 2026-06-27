@@ -121,7 +121,7 @@ result_get() {
   grep -E "^RESULT[[:space:]]" "$file" 2>/dev/null \
     | grep -oE "(^|[[:space:]])$key=[^[:space:]]+" \
     | tail -n1 \
-    | sed -E "s/.*$key=//"
+    | sed -E "s/.*$key=//" || true
 }
 
 # =============================================================================
@@ -246,12 +246,20 @@ GAME_OUT="$LOG_DIR/game-update-$TS.out"
 
 # Run game-update.sh over one hop. tee its combined output to the log AND to a
 # RESULT-parse file. Capture the remote exit code through the pipe.
-info "Running scripts/game-update.sh on game (this includes the ~8-15 min Store poll unless --skip-vm)..."
-set +e
-ssh "$GAME_SSH" "bash $REMOTE_REPO/scripts/game-update.sh ${GAME_FLAGS[*]}" \
-  2>&1 | tee -a "$LOG" "$GAME_OUT"
-GAME_RC=${PIPESTATUS[0]}
-set -e
+if [ "$DRY_RUN" = 1 ]; then
+  # In dry-run we delivered nothing to game (Phase 2 was gated), so we cannot and
+  # must not execute the remote sequencer. Show what would run and move on.
+  info "[dry-run] would run on game: bash $REMOTE_REPO/scripts/game-update.sh ${GAME_FLAGS[*]}"
+  info "[dry-run]   (that step does the VM Store-update, extract, setup, and headless smoke)"
+  GAME_RC=0
+else
+  info "Running scripts/game-update.sh on game (this includes the ~8-15 min Store poll unless --skip-vm)..."
+  set +e
+  ssh "$GAME_SSH" "bash $REMOTE_REPO/scripts/game-update.sh ${GAME_FLAGS[*]}" \
+    2>&1 | tee -a "$LOG" "$GAME_OUT"
+  GAME_RC=${PIPESTATUS[0]}
+  set -e
+fi
 
 NEW_VERSION="$(result_get "$GAME_OUT" new_version)"
 OLD_VERSION="$(result_get "$GAME_OUT" old_version)"
@@ -315,7 +323,7 @@ else
   # source is host-correct even if game's user/home differs.
   GAME_GAME_DIR_REMOTE="$(ssh "$GAME_SSH" \
     "set -a; . $REMOTE_REPO/scripts/update-targets.conf 2>/dev/null; eval echo \"\$GAME_GAME_DIR\"" \
-    2>>"$LOG")"
+    2>>"$LOG" || true)"
   if [ -z "$GAME_GAME_DIR_REMOTE" ]; then
     warn "Could not resolve GAME_GAME_DIR on game from its conf; falling back to katana-expanded path '$GAME_GAME_DIR'."
     GAME_GAME_DIR_REMOTE="$GAME_GAME_DIR"
