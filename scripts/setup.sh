@@ -4,6 +4,11 @@
 
 set -euo pipefail
 
+# Resolve the script's own directory FIRST, before any `cd`, so that stubs/
+# references work regardless of how the script is invoked (relative or absolute)
+# and regardless of CWD changes made by later steps (e.g. step 1's `cd "$WORK_DIR"`).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 WINEGDK_DIR="${WINEGDK_DIR:-$HOME/Projects/WineGDK/install-clang23}"
 GAME_DIR="${GAME_DIR:-$HOME/Games/minecraft-bedrock/game}"
 PREFIX_DIR="${PREFIX_DIR:-$HOME/Games/minecraft-bedrock/prefix}"
@@ -47,7 +52,10 @@ cd "$WORK_DIR"
 curl -sLO "$CURL_URL"
 zstd -d "$CURL_PKG"
 tar xf "${CURL_PKG%.zst}"
-cp "$GAME_DIR/XCurl.dll" "$GAME_DIR/XCurl.dll.bak" 2>/dev/null || true
+# No-clobber backup: only on the FIRST run, when XCurl.dll is still the genuine
+# Microsoft DLL. A second run sees the mingw libcurl in place; re-copying would
+# overwrite the .bak with the stub and destroy the only copy of the real MS DLL.
+[[ -f "$GAME_DIR/XCurl.dll.bak" ]] || cp "$GAME_DIR/XCurl.dll" "$GAME_DIR/XCurl.dll.bak" 2>/dev/null || true
 cp mingw64/bin/libcurl-4.dll "$GAME_DIR/XCurl.dll"
 rm -rf mingw64
 echo "  Done."
@@ -157,8 +165,7 @@ else
 fi
 
 # 7. Build and install midlproxystub (fixes ObjectStublessClient4 crash)
-echo "[7/10] Building and installing midlproxystub..."
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo "[7/12] Building and installing midlproxystub..."
 STUBS_DIR="$SCRIPT_DIR/../stubs/midlproxystub"
 MIDL_DLL="api-ms-win-core-com-midlproxystub-l1-1-0.dll"
 if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
@@ -175,9 +182,15 @@ fi
 echo "[8/10] Installing DXVK..."
 DXVK_VERSION="2.7.1"
 DXVK_DIR="/tmp/dxvk-$DXVK_VERSION"
-if [[ ! -d "$DXVK_DIR" ]]; then
+# Key the guard on CONTENTS, not directory existence: an interrupted prior
+# download (game wifi drops) can leave a partial/empty dir, which the old
+# existence check skipped, leaving DXVK silently uninstalled. Re-extract
+# idempotently if the payload isn't present, and use curl -f so an HTTP error
+# fails the pipe instead of feeding a partial body to tar.
+if [[ ! -f "$DXVK_DIR/x64/d3d11.dll" ]]; then
     echo "  Downloading DXVK $DXVK_VERSION..."
-    curl -sL "https://github.com/doitsujin/dxvk/releases/download/v$DXVK_VERSION/dxvk-$DXVK_VERSION.tar.gz" | tar xz -C /tmp/
+    rm -rf "$DXVK_DIR"
+    curl -fsSL "https://github.com/doitsujin/dxvk/releases/download/v$DXVK_VERSION/dxvk-$DXVK_VERSION.tar.gz" | tar xz -C /tmp/
 fi
 if [[ -f "$DXVK_DIR/x64/d3d11.dll" ]]; then
     cp "$DXVK_DIR/x64/d3d11.dll" "$PREFIX_DIR/drive_c/windows/system32/"
@@ -190,11 +203,18 @@ else
 fi
 
 # 9. Build and install GameInput stub (bypasses "missing required component" dialog)
-echo "[9/11] Building GameInput stub..."
+echo "[9/12] Building GameInput stub..."
 GAMEINPUT_DIR="$SCRIPT_DIR/../stubs/gameinput"
 if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
     (cd "$GAMEINPUT_DIR" && make clean && make)
     cp "$GAMEINPUT_DIR/GameInput.dll" "$PREFIX_DIR/drive_c/windows/system32/gameinput.dll"
+    # NOTE: the committed stubs/gameinput/dwmapi.dll mouse-click-hook proxy is
+    # intentionally NOT installed into $GAME_DIR. It page-faults under 26.31's
+    # new pointer-input API, so play-bedrock.sh uses Wine builtin dwmapi
+    # (dwmapi=b), which does not load a game/dwmapi.dll proxy. If the hook is
+    # ever rebuilt and dwmapi=n is restored, install it here with a no-clobber
+    # backup: [[ -f "$GAME_DIR/dwmapi.dll.bak" ]] || cp "$GAME_DIR/dwmapi.dll" \
+    #   "$GAME_DIR/dwmapi.dll.bak" 2>/dev/null || true; then copy the proxy in.
     echo "  Done."
 else
     echo "  WARNING: x86_64-w64-mingw32-gcc not found."
@@ -202,12 +222,12 @@ else
 fi
 
 # 10. Build and install Windows App Runtime bootstrapper stub
-echo "[10/11] Building Windows App Runtime bootstrapper stub..."
+echo "[10/12] Building Windows App Runtime bootstrapper stub..."
 BOOTSTRAP_DIR="$SCRIPT_DIR/../stubs/winappruntime-bootstrap"
 BOOTSTRAP_DLL="Microsoft.WindowsAppRuntime.Bootstrap.dll"
 if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
     (cd "$BOOTSTRAP_DIR" && make clean && make)
-    cp "$GAME_DIR/$BOOTSTRAP_DLL" "$GAME_DIR/$BOOTSTRAP_DLL.bak" 2>/dev/null || true
+    [[ -f "$GAME_DIR/$BOOTSTRAP_DLL.bak" ]] || cp "$GAME_DIR/$BOOTSTRAP_DLL" "$GAME_DIR/$BOOTSTRAP_DLL.bak" 2>/dev/null || true
     cp "$BOOTSTRAP_DIR/$BOOTSTRAP_DLL" "$GAME_DIR/$BOOTSTRAP_DLL"
     echo "  Done."
 else
@@ -215,8 +235,29 @@ else
     echo "  Install with: sudo apt install gcc-mingw-w64-x86-64"
 fi
 
-# 11. Patch graphics_mode to avoid deferred renderer crash
-echo "[11/11] Patching graphics options..."
+# 11. Build and install GameConfigHelper stub (game imports it; provides
+#     OpenGameConfigForPackage). Goes in the game dir as GameConfigHelper.dll.
+#     Was a manual carry-forward before; now built from stubs.
+echo "[11/12] Building and installing GameConfigHelper stub..."
+GAMECONFIG_DIR="$SCRIPT_DIR/../stubs/gameconfighelper"
+GAMECONFIG_DLL="GameConfigHelper.dll"
+if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
+    (cd "$GAMECONFIG_DIR" && make clean && make)
+    [[ -f "$GAME_DIR/$GAMECONFIG_DLL.bak" ]] || cp "$GAME_DIR/$GAMECONFIG_DLL" "$GAME_DIR/$GAMECONFIG_DLL.bak" 2>/dev/null || true
+    cp "$GAMECONFIG_DIR/$GAMECONFIG_DLL" "$GAME_DIR/$GAMECONFIG_DLL"
+    echo "  Done (built and installed to game dir)."
+elif [[ -f "$GAMECONFIG_DIR/$GAMECONFIG_DLL" ]]; then
+    # No mingw toolchain, but a prebuilt DLL is committed -- use it.
+    [[ -f "$GAME_DIR/$GAMECONFIG_DLL.bak" ]] || cp "$GAME_DIR/$GAMECONFIG_DLL" "$GAME_DIR/$GAMECONFIG_DLL.bak" 2>/dev/null || true
+    cp "$GAMECONFIG_DIR/$GAMECONFIG_DLL" "$GAME_DIR/$GAMECONFIG_DLL"
+    echo "  Done (used prebuilt $GAMECONFIG_DLL; no mingw toolchain to rebuild)."
+else
+    echo "  WARNING: x86_64-w64-mingw32-gcc not found and no prebuilt $GAMECONFIG_DLL."
+    echo "  Install with: sudo apt install gcc-mingw-w64-x86-64"
+fi
+
+# 12. Patch graphics_mode to avoid deferred renderer crash
+echo "[12/12] Patching graphics options..."
 OPTIONS_FILE="$PREFIX_DIR/drive_c/users/$(whoami)/AppData/Roaming/Minecraft Bedrock/Users/Shared/games/com.mojang/minecraftpe/options.txt"
 if [[ -f "$OPTIONS_FILE" ]]; then
     sed -i 's/^graphics_mode:[0-9]\+/graphics_mode:0/' "$OPTIONS_FILE"

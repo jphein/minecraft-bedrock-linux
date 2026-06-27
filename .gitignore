@@ -36,3 +36,8 @@ stubs/*/*.o
 stubs/**/*.o
 stubs/**/*.dll
 scripts/servers.conf
+scripts/update-targets.conf
+
+# Update-run logs (keep the dir, ignore its contents)
+logs/*
+!logs/.gitkeep

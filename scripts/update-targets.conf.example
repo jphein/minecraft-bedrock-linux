@@ -1,0 +1,22 @@
+# Topology + targets for scripts/update-bedrock.sh
+# Copy to scripts/update-targets.conf (gitignored) and fill in your real values.
+# Sourced as bash.
+
+# --- game host (the machine running the Windows 11 KVM VM) ---
+GAME_SSH="user@100.x.y.z"                   # how katana reaches the game host (Tailscale/LAN)
+VM_NAME="windows11"                         # libvirt domain name (needs sudo virsh)
+VM_USER="user"                              # Windows username (ssh into the VM + C:\Users\<user>)
+MC_PACKAGE_FAMILY="Microsoft.MinecraftUWP_8wekyb3d8bbwe"
+MC_AUMID="Microsoft.MinecraftUWP_8wekyb3d8bbwe!Game"
+
+# --- BDS server host (optional; omit / use --client-only if you don't self-host) ---
+TERRA_SSH="user@100.x.y.z"                  # how katana reaches the BDS host
+# Bedrock servers — "systemd_service:linux_user:udp_port:display_name". Repeat per server.
+# Do NOT list Java Edition servers here.
+BDS_SERVER="mcbedrock:mcserver:19132:myworld"
+#BDS_SERVER="mcbedrock2:mcserver2:8888:another"
+
+# --- paths (defaults usually fine) ---
+GAME_GAME_DIR="$HOME/Games/minecraft-bedrock/game"
+KATANA_GAME_DIR="$HOME/Games/minecraft-bedrock/game"
+MIN_FREE_GB_GAME=5
