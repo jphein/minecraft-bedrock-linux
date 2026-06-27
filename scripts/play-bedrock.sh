@@ -83,9 +83,10 @@ fi
 
 # ---- 4. launch ---------------------------------------------------------------
 export WINEPREFIX="$PREFIX" WINEESYNC=1 WINEFSYNC=1 WINEDEBUG=-all
-# builtin gameinput (clears error screen w/ no redist); native dwmapi proxy; stub the
-# unimplemented ntuser private apisets.
-export WINEDLLOVERRIDES="d3d11,dxgi=n;gameinput=b;dwmapi=n;api-ms-win-rtcore-ntuser-private-l1-1-1=n;ext-ms-win-ntuser-private-l1-1-1=n"
+# builtin gameinput (clears error screen w/ no redist); builtin dwmapi (the custom
+# native proxy from 1.26.21 page-faults under 26.31 — see task #7; builtin renders
+# fine but lacks the menu mouse-click hook); stub the unimplemented ntuser private apisets.
+export WINEDLLOVERRIDES="d3d11,dxgi=n;gameinput=b;dwmapi=b;api-ms-win-rtcore-ntuser-private-l1-1-1=n;ext-ms-win-ntuser-private-l1-1-1=n"
 
 # DXVK tuning for the GTX 1650 — always applied (safe, beneficial). The NVIDIA
 # Vulkan pipeline cache is automatic (~/.cache/nvidia); DXVK 2.7 has no state

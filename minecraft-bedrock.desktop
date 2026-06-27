@@ -9,6 +9,7 @@ Terminal=false
 Categories=Game;
 Keywords=minecraft;bedrock;mcpe;luna;
 StartupNotify=true
+StartupWMClass=minecraft.windows.exe
 Actions=Windowed;NoProxy;
 
 [Desktop Action Windowed]
