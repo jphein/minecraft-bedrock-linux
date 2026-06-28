@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Minecraft Bedrock 1.26.21 launcher for Linux (WineGDK + DXVK).
+# Minecraft Bedrock 26.32 launcher for Linux (WineGDK + DXVK).
 #
 #   ./play-bedrock.sh              # windowed (default)
 #   ./play-bedrock.sh --fullscreen # fullscreen

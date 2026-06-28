@@ -2,13 +2,13 @@
 
 Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraft Bedrock on Ubuntu using [WineGDK](https://github.com/Weather-OS/WineGDK), a Wine fork with native GDK (Game Development Kit) support.
 
-> **Status: PLAYABLE (2026-06-06)** — Bedrock 1.26.21 runs on WineGDK + DXVK: the **menu renders**, **gamepad works** (Xbox / Stadia / PS3), **keyboard works**, **mouse clicks work** in the menu, and it **connects to remote BDS servers** (advertised as LAN games by the included proxy). Confirmed in real use. See [`PLAYING.md`](PLAYING.md) for how to play and [`ATTEMPTS.md`](ATTEMPTS.md) for the full investigation.
+> **Status: PLAYABLE (2026-06-28)** — Bedrock 26.32 runs on WineGDK + DXVK: the **menu renders**, **gamepad works** (Xbox / Stadia / PS3), **keyboard works**, and it **connects to remote BDS servers** (advertised as LAN games by the included proxy). **Menu mouse-clicks** may need the ~5s gate wait on 26.3x (keyboard/gamepad always work — see Known Limitations). Confirmed in real use. See [`PLAYING.md`](PLAYING.md) for how to play and [`ATTEMPTS.md`](ATTEMPTS.md) for the full investigation.
 >
 > **Quick start:** launch **"Minecraft Bedrock"** from the GNOME dash (or run `scripts/play-bedrock.sh [--windowed]`), connect a controller *before* launching, and join your server from **LAN Games**. Configure servers in the gitignored `scripts/servers.conf` (copy `scripts/servers.conf.example`).
 
 > **Known Limitations & Caveats**
 >
-> - **Mouse click latency on first session** — mouse clicks work, but only after ~5s while the dwmapi hook clears Bedrock's internal input gate. Nothing to do — just wait for the menu to fully load before clicking.
+> - **Menu mouse-clicks on 26.3x** — the custom dwmapi click-hook proxy that drove menu clicks on 1.26.21 page-faults under 26.3x's reworked pointer-input API, so the launcher uses Wine's **builtin** dwmapi (`dwmapi=b`). The game renders and plays fine; in the menu, give it the ~5s gate wait before clicking, or use keyboard/gamepad. In-world mouse-look is unaffected.
 > - **Intermittent "missing required component" error screen on launch** — a ~50/50 GDK component-check race. Just relaunch.
 > - **Silent "no window" on launch** — leftover `lan-proxy.py` / wineserver / game processes from a previous run make the game hang before rendering. `scripts/play-bedrock.sh` cleans these up automatically before launching.
 > - **Connect a controller *before* launching** — GameInput enumerates devices at startup. Xbox/Stadia go through XInput; PS3/generic pads through DirectInput.
@@ -27,13 +27,13 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | Host OS | Ubuntu 24.04 LTS |
 | VM | Windows 11 on KVM/QEMU with virt-manager |
 | Runner | [WineGDK](https://github.com/Weather-OS/WineGDK) (built from source), Wine 11.8 |
-| Game Version | Bedrock 1.26.21 |
+| Game Version | Bedrock 26.32 |
 | GPU Tested | NVIDIA GeForce GTX 1650 (TU117), Driver 595.58.03 |
 | Forks | [jphein/WineGDK](https://github.com/jphein/WineGDK), [jphein/GDK-Proton](https://github.com/jphein/GDK-Proton) |
 
-## Current Status (2026-06-06)
+## Current Status (2026-06-28)
 
-**PLAYABLE.** Minecraft Bedrock 1.26.21 runs on Ubuntu Linux via WineGDK + DXVK — menu renders, **mouse + gamepad + keyboard all work**, connects to self-hosted BDS servers. Played end-to-end. Current build:
+**PLAYABLE.** Minecraft Bedrock 26.32 runs on Ubuntu Linux via WineGDK + DXVK — menu renders, **gamepad + keyboard work** (menu mouse-clicks may need the ~5s gate wait on 26.3x — see Known Limitations), connects to self-hosted BDS servers. Played end-to-end. Current build:
 
 | Build | Install Path | Notes |
 |-------|-------------|-------|
@@ -44,7 +44,7 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 
 ### What works
 - **Menu renders** (cohtml Ore UI) and is fully navigable by **mouse**, **keyboard**, and **gamepad**.
-- **Mouse clicks in the menu** — work after ~5s while the dwmapi hook clears Bedrock's internal input gate. Just wait for the menu to finish loading before clicking.
+- **Mouse** — in-world mouse-look works; **menu clicks** may need the ~5s gate wait on 26.3x (the launcher uses builtin dwmapi there — see Known Limitations). Keyboard/gamepad always navigate the menu.
 - **Gamepad** — Xbox / Stadia / PS3 controllers (XInput + DirectInput paths). Connect *before* launching.
 - **3D world** renders (DXVK d3d11 + vkd3d-proton d3d12), audio, in-world mouse-look.
 - **Multiplayer to self-hosted BDS servers** — advertised as LAN games via `scripts/lan-proxy.py`; one-shot launch via `scripts/play-bedrock.sh` + GNOME dash entry.
@@ -79,7 +79,12 @@ The file `xgameruntime.dll.threading` is a native Microsoft DLL that must be pre
 | `scripts/launch.sh` | Host | Launch Minecraft via WineGDK (wine) |
 | `scripts/debug-launch.sh` | Host | Launch with Wine debug output captured to log file |
 | `scripts/update-xcurl.sh` | Host | Re-download XCurl.dll after game updates |
-| `scripts/update.sh` | Host | Full update: re-extract from VM and re-setup |
+| `scripts/update-bedrock.sh` | katana | **One-command update orchestrator** — VM update → extract → setup → smoke → push to katana → update BDS servers |
+| `scripts/game-update.sh` | game host | Game-side sequencer the orchestrator calls: VM update + extract + setup + headless smoke |
+| `scripts/update-bds-servers.sh` | terra | Update self-hosted BDS servers to a matching version (worlds/configs preserved) |
+| `scripts/vm-update-minecraft.ps1` | VM | Headless Microsoft Store update inside the Windows 11 VM |
+| `scripts/update-targets.conf.example` | katana | Topology config template for `update-bedrock.sh` (copy to gitignored `update-targets.conf`) |
+| `scripts/update.sh` | Host | **Deprecated** (old GDK-Proton flow) — prints a notice and exits; use `update-bedrock.sh` |
 | `scripts/collect-logs.sh` | Host | Collect full diagnostic info (system, DLLs, prefix health) |
 | `scripts/lan-proxy.py` | Host | UDP broadcast proxy for LAN multiplayer across subnets |
 | `scripts/install-addon.sh` | Host | Install .mcaddon/.mcpack into the game's com.mojang directory |
@@ -395,26 +400,49 @@ This removes the game directory, Wine prefix, and related configs. Source game f
 
 ## Updating
 
-When a new Minecraft Bedrock version comes out, update it in the Xbox App on the Windows VM, then run:
+### One command (recommended)
+
+When a new Bedrock version ships, run the orchestrator from **katana** (your workstation):
 
 ```bash
-./scripts/update.sh <windows-user> <vm-ip>
+./scripts/update-bedrock.sh
 ```
 
-This will:
-1. **Re-extract game files** — decrypts and copies the updated build from the VM
-2. **Update XCurl.dll** — auto-detects and downloads the latest mingw curl from MSYS2
-3. **Refresh SSL certificates** — downloads the latest Mozilla CA bundle
-4. **Re-install GameInputRedist** — into the Wine prefix
+It drives the whole update end-to-end and **never declares success on a failed smoke check**:
 
-World saves are automatically backed up before extraction and restored afterward.
+1. **VM Store update** — triggers and waits for the Microsoft Store to pull the new build inside the Windows 11 VM (headless), then reads the new version.
+2. **Extract** — decrypts and copies the updated game files out of the VM.
+3. **Host setup** — re-runs `setup.sh` (XCurl, certs, stub DLLs, prefix) against the new build.
+4. **Headless smoke check** — launches the game on the game host for ~60s to confirm it actually starts. **A failed smoke halts the run** — nothing is pushed and the previous build's `game.bak` rollback stays intact.
+5. **Delta-push to katana** — backs up katana's current build, then delta-rsyncs the verified build over (resume-retry on flaky links), and **re-verifies** the binary (PE32+, size match, manifest version).
+6. **Update the BDS servers** — updates your self-hosted terra BDS servers to the **matching protocol release** (Bedrock requires client↔server version match), preserving worlds and configs, and verifies each comes back up.
 
-**Partial updates** (skip steps you don't need):
+Then launch and join a server to confirm the protocol match:
 
 ```bash
-# Skip VM extraction (just re-setup with existing game files)
-SKIP_VM=1 ./scripts/update.sh <windows-user> <vm-ip>
+./scripts/play-bedrock.sh
 ```
+
+**Configure topology** in `scripts/update-targets.conf` — copy the template and fill in your real values:
+
+```bash
+cp scripts/update-targets.conf.example scripts/update-targets.conf
+```
+
+That file is **gitignored** (it holds private Tailscale IPs, the VM domain name, and your BDS server list), so real addresses are never committed.
+
+**Flags:**
+
+| Flag | Effect |
+|------|--------|
+| `--client-only` (or `--skip-servers`) | Update only the client (game + katana); skip the terra BDS servers |
+| `--skip-vm` | Re-extract the **current** VM build; skip the Store update |
+| `--dry-run` | Print the plan and run read-only probes only; touch nothing |
+| `--yes` | Don't pause for interactive confirmation |
+
+Under the hood the orchestrator calls the building blocks directly — `scripts/game-update.sh` (the game-side VM-update → extract → setup → smoke sequencer, which in turn uses `host-copy-from-vm.sh` and `setup.sh`), `scripts/vm-update-minecraft.ps1` (the in-VM headless Store update), and `scripts/update-bds-servers.sh` (the worlds-preserving terra BDS updater). You can run any of them standalone.
+
+> **Deprecated:** the old GDK-Proton `scripts/update.sh` is retired — it targeted dead paths and now just prints a notice pointing here and exits.
 
 To update WineGDK itself, rebuild from source:
 ```bash
@@ -457,6 +485,7 @@ WineGDK is a Wine fork that includes native support for several Windows APIs tha
 
 - **No Microsoft account login** — XUser is not implemented in WineGDK
 - **No Realms or featured servers** — requires Microsoft auth
+- **Menu mouse-clicks on 26.3x** — the custom dwmapi click-hook proxy page-faults under 26.3x's reworked pointer-input API, so the launcher uses Wine's builtin dwmapi (`dwmapi=b`). The game renders and plays normally; menu clicks may need the ~5s gate wait (or use keyboard/gamepad). In-world mouse-look is unaffected
 - **Multiplayer** — LAN play works natively; for external servers, use [ProxyPass](https://minecraft.wiki/w/Tutorial:Playing_Minecraft_on_Linux) to proxy them as LAN
 - **File picker crashes** — import worlds manually by extracting `.mcworld` files into `com.mojang/minecraftWorlds/`
 - **Wine prefix corruption** — crashes can corrupt the prefix; back up saves regularly

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Minecraft Bedrock
-GenericName=Minecraft Bedrock Edition (1.26.21, WineGDK)
+GenericName=Minecraft Bedrock Edition (26.32, WineGDK)
 Comment=Latest Bedrock on Linux — gamepad + Luna server via LAN proxy
 Exec=/home/jp/Projects/minecraft-bedrock-linux/scripts/play-bedrock.sh
 Icon=/home/jp/.local/share/icons/minecraft-bedrock.png
