@@ -270,6 +270,22 @@ elif [ -d "$GAME_GAME_DIR" ]; then
     fi
     log "moving current game dir aside -> $BACKUP_DIR"
     mv "$GAME_GAME_DIR" "$BACKUP_DIR" || abort "could not move $GAME_GAME_DIR aside"
+    touch "$BACKUP_DIR"   # stamp creation time so the prune below orders by backup age
+
+    # Auto-prune old backups so the (tight) game disk does not fill across updates.
+    # Keep the most recent KEEP_BACKUPS game.bak-* (including the one just created =
+    # this run's rollback); delete older ones. Default 2; set KEEP_BACKUPS=0 to disable.
+    KEEP_BACKUPS="${KEEP_BACKUPS:-2}"
+    if [ "$KEEP_BACKUPS" -gt 0 ]; then
+        mapfile -t _baks < <(ls -1dt "$GAME_PARENT"/game.bak-* 2>/dev/null || true)
+        if [ "${#_baks[@]}" -gt "$KEEP_BACKUPS" ]; then
+            for _old in "${_baks[@]:$KEEP_BACKUPS}"; do
+                [ -d "$_old" ] || continue
+                log "pruning old backup: $_old ($(du -sh "$_old" 2>/dev/null | cut -f1))"
+                rm -rf -- "$_old"
+            done
+        fi
+    fi
 else
     log "no existing game dir at $GAME_GAME_DIR (nothing to back up)"
 fi
