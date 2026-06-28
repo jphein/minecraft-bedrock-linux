@@ -254,8 +254,12 @@ if [ "$DRY_RUN" = 1 ]; then
   GAME_RC=0
 else
   info "Running scripts/game-update.sh on game (this includes the ~8-15 min Store poll unless --skip-vm)..."
+  # game-update.sh needs the non-secret game/VM config. The gitignored conf (with
+  # private IPs) is NOT pushed to game, so forward those values through the SSH env;
+  # game-update.sh reads env first and only falls back to a local conf if present.
+  GAME_ENV="VM_NAME=$(printf %q "${VM_NAME:-}") VM_USER=$(printf %q "${VM_USER:-}") GAME_GAME_DIR=$(printf %q "${GAME_GAME_DIR:-}") MC_PACKAGE_FAMILY=$(printf %q "${MC_PACKAGE_FAMILY:-}") MC_AUMID=$(printf %q "${MC_AUMID:-}") MIN_FREE_GB_GAME=$(printf %q "${MIN_FREE_GB_GAME:-5}")"
   set +e
-  ssh "$GAME_SSH" "bash $REMOTE_REPO/scripts/game-update.sh ${GAME_FLAGS[*]}" \
+  ssh "$GAME_SSH" "$GAME_ENV bash $REMOTE_REPO/scripts/game-update.sh ${GAME_FLAGS[*]}" \
     2>&1 | tee -a "$LOG" "$GAME_OUT"
   GAME_RC=${PIPESTATUS[0]}
   set -e

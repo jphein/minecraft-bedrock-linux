@@ -85,7 +85,7 @@ echo "  InstallLocation: $INSTALL_DIR" >&2
 
 # Source exe size (the InstallLocation exe is encrypted at rest but Get-Item reports
 # its true on-disk length; the decrypted copy must match this byte-for-byte).
-SRC_EXE_SIZE=$(ssh "$SSH_TARGET" "powershell -NoProfile -Command \"(Get-Item \$([char]34)$INSTALL_DIR\\Minecraft.Windows.exe$([char]34)).Length\"" 2>/dev/null | tr -d '\r ')
+SRC_EXE_SIZE=$(ssh "$SSH_TARGET" "powershell -NoProfile -Command \"(Get-Item '$INSTALL_DIR\\Minecraft.Windows.exe').Length\"" 2>/dev/null | tr -d '\r ')
 if ! [[ "$SRC_EXE_SIZE" =~ ^[0-9]+$ ]] || [ "$SRC_EXE_SIZE" -lt "$MIN_EXE_BYTES" ]; then
     echo "ERROR: Could not read a sane InstallLocation exe size (got '${SRC_EXE_SIZE:-<empty>}')." >&2
     echo "Expected >= $MIN_EXE_BYTES bytes. Aborting before any copy." >&2
@@ -95,7 +95,7 @@ fi
 # Source file count (robocopy from package context copies everything EXCEPT the DRM
 # exe, which it skips; we decrypt that separately, so the final staged count should
 # equal the InstallLocation count).
-SRC_FILE_COUNT=$(ssh "$SSH_TARGET" "powershell -NoProfile -Command \"(Get-ChildItem \$([char]34)$INSTALL_DIR$([char]34) -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count\"" 2>/dev/null | tr -d '\r ')
+SRC_FILE_COUNT=$(ssh "$SSH_TARGET" "powershell -NoProfile -Command \"(Get-ChildItem '$INSTALL_DIR' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count\"" 2>/dev/null | tr -d '\r ')
 if ! [[ "$SRC_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$SRC_FILE_COUNT" -lt 1000 ]; then
     echo "ERROR: Could not read a sane InstallLocation file count (got '${SRC_FILE_COUNT:-<empty>}')." >&2
     exit 1
@@ -103,25 +103,16 @@ fi
 echo "  Source exe size:   $SRC_EXE_SIZE bytes" >&2
 echo "  Source file count: $SRC_FILE_COUNT files" >&2
 
-# --- [3/7] FIX #1: delete the VM staging dir FIRST --------------------------
-# The 2026-06-20 fail left a stale OLD build in staging; the poll saw it already
-# "stable" and shipped it. Remove it before robocopy so the poll reflects the real
-# copy, and FAIL if the removal does not actually happen.
-echo "[3/7] Cleaning VM staging dir (delete-before-copy)..." >&2
-ssh "$SSH_TARGET" "powershell -NoProfile -Command \"
-    if (Test-Path '$VM_STAGING') { Remove-Item '$VM_STAGING' -Recurse -Force }
-    if (Test-Path '$VM_STAGING') { Write-Error 'STAGING_NOT_REMOVED'; exit 1 }
-    New-Item -ItemType Directory -Force -Path '$VM_STAGING' | Out-Null
-    Write-Host 'STAGING_CLEAN'
-\"" >&2
-# Confirm the dir is empty before we start (defensive: catches a silently-failed wipe).
-STAGE_PRECOUNT=$(ssh "$SSH_TARGET" "powershell -NoProfile -Command \"(Get-ChildItem '$VM_STAGING' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count\"" 2>/dev/null | tr -d '\r ')
-if [ "${STAGE_PRECOUNT:-X}" != "0" ]; then
-    echo "ERROR: VM staging '$VM_STAGING' is not empty after clean (count=${STAGE_PRECOUNT:-?})." >&2
-    echo "Refusing to copy into a dirty staging dir (this is the stale-binary trap)." >&2
-    exit 1
-fi
-echo "  Staging clean (0 files)." >&2
+# --- [3/7] staging is cleaned by robocopy /MIR (next step) ------------------
+# The 2026-06-20 fail shipped a STALE build because the staging dir held an old copy.
+# The obvious fix — Remove-Item the staging first — does NOT work: the tree was created
+# INSIDE the package sandbox (robocopy via Invoke-CommandInDesktopPackage) and carries
+# sandbox ACLs that a NORMAL-context Remove-Item cannot delete (observed 2026-06-27:
+# 36047 files survived the wipe). Instead, the robocopy below uses /MIR (mirror), which
+# runs IN the package context (matching ACLs) and deletes any stale extras while it
+# copies — so the staged tree always equals the current install. The post-copy file-
+# count and exe-size checks then verify completeness, catching any partial mirror.
+echo "[3/7] (staging is mirrored by robocopy /MIR below — no separate normal-context clean)" >&2
 
 # --- [4/7] robocopy inside the package context ------------------------------
 # Xbox/MS Store games are encrypted at rest — a plain copy fails with access denied.
@@ -129,13 +120,12 @@ echo "  Staging clean (0 files)." >&2
 # transparently decrypted. robocopy copies every file EXCEPT the DRM-protected primary
 # exe (it skips that); the exe is handled by the dedicated decrypt step below.
 echo "[4/7] robocopy inside package context (async)..." >&2
-ssh "$SSH_TARGET" "powershell -NoProfile -Command \"
-    Invoke-CommandInDesktopPackage \`
-        -PackageFamilyName '$MC_PACKAGE_FAMILY' \`
-        -AppId 'Game' \`
-        -Command 'cmd.exe' \`
-        -Args \"/C robocopy \$([char]34)$INSTALL_DIR\$([char]34) \$([char]34)$VM_STAGING_BS\$([char]34) /E /R:1 /W:1 /NP\"
-\"" >&2
+# Build the cmd command line in a PowerShell variable using [char]34 (a literal ")
+# concatenated around single-quoted path literals. This avoids nested double-quotes
+# inside the -Command string (which would terminate it early) AND avoids bash
+# command-substituting a bare $([char]34). The only " in the source are the two
+# -Command delimiters; cmd's path quotes are produced at PowerShell runtime.
+ssh "$SSH_TARGET" "powershell -NoProfile -Command \"\$q=[char]34; \$cl='/C robocopy '+\$q+'$INSTALL_DIR'+\$q+' '+\$q+'$VM_STAGING_BS'+\$q+' /MIR /R:1 /W:1 /NP'; Invoke-CommandInDesktopPackage -PackageFamilyName '$MC_PACKAGE_FAMILY' -AppId 'Game' -Command 'cmd.exe' -Args \$cl\"" >&2
 
 # --- FIX #2: wait for growth-THEN-stability, with a minimum elapsed time ----
 echo "  Waiting for robocopy to grow then stabilise (min ${MIN_ELAPSED}s)..." >&2
@@ -198,13 +188,8 @@ fi
 # into the staging dir (NOT via a C:\Users root intermediate, which was the path that
 # silently missed in 2026-06-20).
 echo "[5/7] Decrypting Minecraft.Windows.exe directly into staging..." >&2
-ssh "$SSH_TARGET" "powershell -NoProfile -Command \"
-    Invoke-CommandInDesktopPackage \`
-        -PackageFamilyName '$MC_PACKAGE_FAMILY' \`
-        -AppId 'Game' \`
-        -Command 'cmd.exe' \`
-        -Args \"/C copy /Y \$([char]34)$INSTALL_DIR\\Minecraft.Windows.exe\$([char]34) \$([char]34)$VM_STAGING_BS\\Minecraft.Windows.exe\$([char]34)\"
-\"" >&2
+# Same [char]34-concatenation pattern as robocopy above (no nested double-quotes).
+ssh "$SSH_TARGET" "powershell -NoProfile -Command \"\$q=[char]34; \$cl='/C copy /Y '+\$q+'$INSTALL_DIR\\Minecraft.Windows.exe'+\$q+' '+\$q+'$VM_STAGING_BS\\Minecraft.Windows.exe'+\$q; Invoke-CommandInDesktopPackage -PackageFamilyName '$MC_PACKAGE_FAMILY' -AppId 'Game' -Command 'cmd.exe' -Args \$cl\"" >&2
 
 # Invoke-CommandInDesktopPackage returns before the spawned cmd finishes; poll the
 # staged exe until it reaches the expected size (or time out loudly).

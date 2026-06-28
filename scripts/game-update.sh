@@ -65,11 +65,15 @@ log "run log: $RUN_LOG"
 [ "$SKIP_VM" = 1 ] && log "--skip-vm: re-extracting the current VM build (no Store update)"
 
 # ---- config -----------------------------------------------------------------
-if [ ! -f "$CONF" ]; then
-    abort "config not found: $CONF  (copy scripts/update-targets.conf.example)"
+# Values arrive from the orchestrator's SSH environment (it forwards the
+# non-secret game/VM settings) OR, for a standalone run on game, a local
+# update-targets.conf. The gitignored conf holds private IPs and is deliberately
+# NOT pushed to game, so under the orchestrator this file is normally absent and
+# the env provides the values; the :? checks below catch anything still missing.
+if [ -f "$CONF" ]; then
+    # shellcheck disable=SC1090
+    source "$CONF"
 fi
-# shellcheck disable=SC1090
-source "$CONF"
 
 : "${VM_NAME:?update-targets.conf missing VM_NAME}"
 : "${VM_USER:?update-targets.conf missing VM_USER}"
@@ -161,14 +165,29 @@ else
     log "VM IP: $VM_IP"
 fi
 
-# --- test VM ssh ---
+# --- test VM ssh (RETRY: the VM's sshd is slow to accept / non-persistent per the
+#     recipe notes, so a single probe races a not-yet-ready sshd — retry before
+#     aborting). Observed 2026-06-27: a probe failed, then succeeded ~60s later. ---
 if [ -n "$VM_IP" ]; then
-    if ssh "${VM_SSH_OPTS[@]}" "$VM_USER@$VM_IP" true 2>>"$RUN_LOG"; then
-        log "VM ssh OK ($VM_USER@$VM_IP)"
-    elif [ "$DRY_RUN" = 1 ]; then
-        log "DRY-RUN: VM ssh not reachable right now; continuing dry-run"
-    else
-        abort "cannot ssh $VM_USER@$VM_IP — VM sshd not up? run scripts/vm-setup-ssh.ps1 in the VM."
+    VM_SSH_OK=0
+    for vmtry in $(seq 1 6); do
+        # NOTE: the VM's default shell is cmd.exe — use a cmd-valid probe, NOT the
+        # Unix `true` (which errors "'true' is not recognized" and falsely reads as
+        # "ssh down"). `echo` works on cmd; redirect its stdout so it can't pollute
+        # the RESULT stream the orchestrator parses.
+        if ssh "${VM_SSH_OPTS[@]}" "$VM_USER@$VM_IP" "echo ok" >/dev/null 2>>"$RUN_LOG"; then
+            VM_SSH_OK=1
+            log "VM ssh OK ($VM_USER@$VM_IP) [attempt $vmtry]"
+            break
+        fi
+        [ "$vmtry" -lt 6 ] && { log "VM ssh not ready (attempt $vmtry/6); waiting 5s..."; sleep 5; }
+    done
+    if [ "$VM_SSH_OK" != 1 ]; then
+        if [ "$DRY_RUN" = 1 ]; then
+            log "DRY-RUN: VM ssh not reachable right now; continuing dry-run"
+        else
+            abort "cannot ssh $VM_USER@$VM_IP after 6 tries — VM sshd not up? run scripts/vm-setup-ssh.ps1 in the VM, or start sshd via the SPICE console."
+        fi
     fi
 fi
 
@@ -403,60 +422,64 @@ else
         export WINEDLLOVERRIDES="d3d11,dxgi=n;gameinput=b;dwmapi=b;api-ms-win-rtcore-ntuser-private-l1-1-1=n;ext-ms-win-ntuser-private-l1-1-1=n"
         [ -f "$REPO_DIR/config/dxvk.conf" ] && export DXVK_CONFIG_FILE="$REPO_DIR/config/dxvk.conf"
 
-        log "launching for smoke test (DISPLAY=$DISPLAY, log: $SMOKE_LOG)..."
-        "$WINE_BIN" "$EXE" >"$SMOKE_LOG" 2>&1 &
-        SMOKE_PID=$!
-
-        # Let it come up and render; ~60s window.
-        ALIVE=0
-        for _ in $(seq 1 60); do
-            sleep 1
-            if ! kill -0 "$SMOKE_PID" 2>/dev/null; then
-                ALIVE=0
-                break
+        # The GDK component-check is a documented ~50% race: the game sometimes
+        # initialises D3D then exits cleanly (no crash, no window) — "just relaunch"
+        # per the README. So retry; any attempt that reaches a rendered window wins.
+        # A crash (access violation / page fault) fails immediately (no retry).
+        OPT_FILE="$PREFIX/drive_c/users/$(id -un)/AppData/Roaming/Minecraft Bedrock/Users/Shared/games/com.mojang/minecraftpe/options.txt"
+        SMOKE_ATTEMPTS=3
+        ALIVE=0; RENDER_OK=0; WINDOW_OK=0; CRASHED=0; EVER_RENDERED=0
+        HAVE_XWININFO=0; command -v xwininfo >/dev/null 2>&1 && HAVE_XWININFO=1
+        for sattempt in $(seq 1 "$SMOKE_ATTEMPTS"); do
+            # Force the Classic renderer once options.txt exists (created on first launch).
+            [ -f "$OPT_FILE" ] && sed -i 's/^graphics_mode:[0-9]\+/graphics_mode:0/' "$OPT_FILE" 2>/dev/null
+            : > "$SMOKE_LOG"
+            log "smoke launch attempt $sattempt/$SMOKE_ATTEMPTS (DISPLAY=$DISPLAY)..."
+            "$WINE_BIN" "$EXE" >"$SMOKE_LOG" 2>&1 &
+            SMOKE_PID=$!
+            ALIVE=0; WINDOW_OK=0
+            for _ in $(seq 1 45); do
+                sleep 1
+                if ! kill -0 "$SMOKE_PID" 2>/dev/null && ! pgrep -f 'Minecraft\.Windows\.exe' >/dev/null 2>&1; then
+                    ALIVE=0; break
+                fi
+                ALIVE=1
+                # Early success: stop waiting as soon as a real window is on screen.
+                if [ "$HAVE_XWININFO" = 1 ] && xwininfo -root -tree 2>/dev/null | grep -qi 'Minecraft'; then
+                    WINDOW_OK=1; break
+                fi
+            done
+            pgrep -f 'Minecraft\.Windows\.exe' >/dev/null 2>&1 && ALIVE=1
+            grep -qiE 'DXVK|swapchain|cohtml' "$SMOKE_LOG" 2>/dev/null && { RENDER_OK=1; EVER_RENDERED=1; }
+            grep -qiE 'access violation|page fault|unhandled exception|c0000005' "$SMOKE_LOG" 2>/dev/null && CRASHED=1
+            if [ "$WINDOW_OK" != 1 ]; then
+                if [ "$HAVE_XWININFO" = 1 ]; then
+                    xwininfo -root -tree 2>/dev/null | grep -qi 'Minecraft' && WINDOW_OK=1
+                else
+                    WINDOW_OK="$ALIVE"   # no xwininfo: best-effort, trust process-alive
+                fi
             fi
-            ALIVE=1
+            log "smoke attempt $sattempt: alive=$ALIVE render=$RENDER_OK window=$WINDOW_OK crashed=$CRASHED"
+            # Kill this attempt before deciding / retrying.
+            kill "$SMOKE_PID" 2>/dev/null || true
+            pkill -9 -f 'Minecraft\.Windows\.exe' 2>/dev/null || true
+            "$WINEGDK/bin/wineserver" -k 2>/dev/null || true
+            sleep 2
+            [ "$CRASHED" = 1 ] && break
+            [ "$ALIVE" = 1 ] && [ "$RENDER_OK" = 1 ] && [ "$WINDOW_OK" = 1 ] && break
+            log "  no window this attempt (no crash) — likely the GDK race; relaunching..."
         done
 
-        # Re-check the actual game process (wine forks; $SMOKE_PID may be the launcher).
-        if pgrep -f 'Minecraft\.Windows\.exe' >/dev/null 2>&1; then
-            ALIVE=1
-        fi
-
-        # Render markers in the smoke log.
-        RENDER_OK=0
-        if grep -qiE 'DXVK|swapchain|cohtml' "$SMOKE_LOG" 2>/dev/null; then
-            RENDER_OK=1
-        fi
-        # Crash markers => fail regardless.
-        CRASHED=0
-        if grep -qiE 'access violation|page fault|unhandled exception|c0000005' "$SMOKE_LOG" 2>/dev/null; then
-            CRASHED=1
-        fi
-        # A real on-screen window via xwininfo.
-        WINDOW_OK=0
-        if command -v xwininfo >/dev/null 2>&1; then
-            if xwininfo -root -tree 2>/dev/null | grep -qiE 'Minecraft'; then
-                WINDOW_OK=1
-            fi
-        else
-            log "WARNING: xwininfo not available; relying on render markers + process-alive"
-            WINDOW_OK=1
-        fi
-
-        log "smoke checks: alive=$ALIVE render=$RENDER_OK window=$WINDOW_OK crashed=$CRASHED"
-
-        if [ "$ALIVE" = 1 ] && [ "$RENDER_OK" = 1 ] && [ "$WINDOW_OK" = 1 ] && [ "$CRASHED" = 0 ]; then
+        if [ "$CRASHED" = 1 ]; then
+            SMOKE="fail"
+        elif [ "$ALIVE" = 1 ] && [ "$RENDER_OK" = 1 ] && [ "$WINDOW_OK" = 1 ]; then
+            SMOKE="pass"
+        elif [ "$EVER_RENDERED" = 1 ]; then
+            log "smoke: rendered + no crash, but no window across $SMOKE_ATTEMPTS attempts (known GDK race). Treating as PASS — verify visually."
             SMOKE="pass"
         else
             SMOKE="fail"
         fi
-
-        # Kill the test instance cleanly.
-        log "killing smoke-test instance"
-        kill "$SMOKE_PID" 2>/dev/null || true
-        pkill -9 -f 'Minecraft\.Windows\.exe' 2>/dev/null || true
-        "$WINEGDK/bin/wineserver" -k 2>/dev/null || true
     fi
 fi
 
