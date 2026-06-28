@@ -311,7 +311,12 @@ else
         abort "new exe is not PE32+ (likely still encrypted): $(file "$NEW_EXE")"
     fi
 
-    # (b) size: >= 200 MB and different from the old one (the silent stale-binary trap).
+    # (b) size sanity: >= 200 MB. We do NOT treat "same size as the old build" as stale:
+    #     re-extracting the SAME version (a --skip-vm re-run, or an already-current backup)
+    #     legitimately yields an identical size. The authoritative staleness guard is in
+    #     host-copy-from-vm.sh, which verifies the extracted exe size == the VM's CURRENT
+    #     InstallLocation exe (and file count) before SCP — so a genuinely stale binary
+    #     cannot pass regardless of what the previous build's size was.
     NEW_EXE_SIZE="$(stat -c%s "$NEW_EXE")"
     log "new exe size: $NEW_EXE_SIZE bytes (old was $OLD_EXE_SIZE)"
     if [ "$NEW_EXE_SIZE" -lt 209715200 ]; then
@@ -319,8 +324,7 @@ else
         abort "new exe is only $((NEW_EXE_SIZE/1048576))MB (< 200MB) — extraction looks incomplete"
     fi
     if [ "$OLD_EXE_SIZE" -ne 0 ] && [ "$NEW_EXE_SIZE" -eq "$OLD_EXE_SIZE" ]; then
-        restore_backup
-        abort "new exe size == old exe size ($NEW_EXE_SIZE) — stale binary, extraction did not refresh"
+        log "note: new exe size == old ($NEW_EXE_SIZE) — same version re-extracted; host-copy already verified it matches the VM's current install, so this is NOT stale."
     fi
 
     # (c) version: AppxManifest.xml is absent from this WineGDK layout, so the
