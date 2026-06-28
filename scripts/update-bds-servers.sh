@@ -227,10 +227,12 @@ else
         || die "download failed: $ZIP_URL"
     mv -f "$ZIP_PATH.partial" "$ZIP_PATH"
 fi
-# Sanity: must be a real zip containing the binary.
-unzip -l "$ZIP_PATH" >/dev/null 2>&1 || die "downloaded file is not a valid zip: $ZIP_PATH"
-unzip -l "$ZIP_PATH" | grep -q 'bedrock_server' \
-    || die "zip $ZIP_PATH does not contain bedrock_server"
+# Sanity: must be a real zip containing the binary. Capture the listing once and grep
+# the captured text — `unzip -l | grep -q` trips `set -o pipefail`: grep -q exits on the
+# first match, unzip gets SIGPIPE (141), and the pipeline reports failure even though the
+# match WAS found (this false-failed a perfectly valid 9761-file BDS zip on 2026-06-28).
+ZIP_LIST="$(unzip -l "$ZIP_PATH" 2>/dev/null)" || die "downloaded file is not a valid zip: $ZIP_PATH"
+grep -q 'bedrock_server' <<<"$ZIP_LIST" || die "zip $ZIP_PATH does not contain bedrock_server"
 log "zip verified ($(du -h "$ZIP_PATH" | awk '{print $1}'))"
 
 # Unique per-run backup stamp (reuse the run timestamp $TS = YYYYmmdd-HHMMSS) so a
