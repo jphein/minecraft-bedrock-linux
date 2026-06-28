@@ -28,6 +28,10 @@ set -euo pipefail
 
 # --- constants ---------------------------------------------------------------
 BDS_BASE_URL="https://www.minecraft.net/bedrockdedicatedserver/bin-linux"
+# minecraft.net's CDN rejects default curl HTTP/2 HEAD/GET (resets the stream -> code 000);
+# force HTTP/1.1 + a browser User-Agent, which it serves normally (confirmed 2026-06-28).
+BDS_UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+BDS_CURL_OPTS=(--http1.1 -A "$BDS_UA")
 INSTALL_SUBDIR="minecraft_bedrock"      # /home/<user>/minecraft_bedrock (per somnia.md)
 # Files/dirs never clobbered by the unzip (preserve player/world state).
 UNZIP_EXCLUDES=( "server.properties" "permissions.json" "allowlist.json" "whitelist.json" "worlds/*" )
@@ -130,7 +134,7 @@ read_console() {
 # url_exists <url> — HEAD probe; returns 0 only on HTTP 200.
 url_exists() {
     local url="$1" code
-    code="$(curl -fsS -o /dev/null -I -w '%{http_code}' --max-time 30 "$url" 2>/dev/null || true)"
+    code="$(curl -fsS "${BDS_CURL_OPTS[@]}" -o /dev/null -I -w '%{http_code}' --max-time 30 "$url" 2>/dev/null || true)"
     [[ "$code" == "200" ]]
 }
 
@@ -219,7 +223,7 @@ if [[ -s "$ZIP_PATH" ]]; then
     log "reusing already-downloaded $ZIP_PATH"
 else
     log "downloading $ZIP_URL -> $ZIP_PATH"
-    curl -fSL --max-time 600 -o "$ZIP_PATH.partial" "$ZIP_URL" \
+    curl -fSL "${BDS_CURL_OPTS[@]}" --max-time 600 -o "$ZIP_PATH.partial" "$ZIP_URL" \
         || die "download failed: $ZIP_URL"
     mv -f "$ZIP_PATH.partial" "$ZIP_PATH"
 fi
