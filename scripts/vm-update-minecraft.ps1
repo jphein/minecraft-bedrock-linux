@@ -37,9 +37,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Poll cadence (design doc: every 30s, up to ~15 min).
+# Poll cadence: every 30s, up to ~30 min. (Design doc said 15 min, but on
+# 2026-08-22 a Store install committed at scan+19min — the download was slowed
+# by concurrent disk I/O in the VM — so the 15-min window declared no_update
+# 2 minutes before the version flipped. Polling exits early on success, so a
+# bigger budget costs nothing on normal runs.)
 $PollIntervalSec = 30
-$MaxWaitMin = 15
+$MaxWaitMin = 30
 $MaxPolls = [int][math]::Ceiling(($MaxWaitMin * 60) / $PollIntervalSec)
 
 # The AppxPackage *name* is the family minus the publisher hash suffix
