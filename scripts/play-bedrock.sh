@@ -7,6 +7,8 @@
 #   ./play-bedrock.sh --no-proxy   # don't start the LAN proxy for remote servers
 #
 # What it does, in order:
+#   0. PREFLIGHT: verify the runtime, game dir and prefix exist, and report via
+#      notify-send — from the dash there is no terminal to print an error to.
 #   1. CLEAN UP stale processes (CRITICAL): leftover lan-proxy / wineserver / game
 #      instances from a previous run cause a silent "no window" startup hang.
 #   2. Start the LAN proxy so the Tailscale BDS servers (Luna etc.) show up under
@@ -50,6 +52,51 @@ for arg in "$@"; do
     --hud)         USE_HUD=1 ;;
   esac
 done
+
+# ---- 0. preflight (fail loudly, BEFORE any side effects) --------------------
+# From the GNOME dash the .desktop runs with Terminal=false, so stdout/stderr go
+# nowhere: a missing game dir was indistinguishable from "the icon does nothing".
+# Validate up front and notify(1), so a broken install is visible — and so a
+# launch that was never going to work does not kill wineserver or leave an
+# orphaned lan-proxy behind.
+die() {
+  local msg="$1" hint="${2:-}" body="$1"
+  [ -n "$hint" ] && body="$msg
+
+$hint"
+  printf '[play] ERROR: %s\n' "$msg" >&2
+  [ -n "$hint" ] && printf '[play] %s\n' "$hint" >&2
+  command -v notify-send >/dev/null 2>&1 &&
+    notify-send -u critical -i dialog-error "Minecraft Bedrock can't start" "$body"
+  exit 1
+}
+
+[ -x "$WINEGDK/bin/wine" ] ||
+  die "WineGDK runtime not found at $WINEGDK" \
+      "Build it, or point WINEGDK_DIR at an existing install."
+
+if [ ! -d "$GAME_DIR" ]; then
+  # An unmounted games drive is the usual cause — diagnose it here rather than
+  # letting wine report a bare chdir failure. Two shapes: ~/Games is a symlink
+  # whose target is gone, or the target exists as a bare, empty mountpoint (what
+  # an unmounted volume leaves behind).
+  hint="Re-run scripts/update-bedrock.sh to reinstall the game files."
+  GAMES_ROOT="$HOME/Games"
+  if [ -L "$GAMES_ROOT" ] && [ ! -d "$GAMES_ROOT" ]; then
+    hint="$GAMES_ROOT -> $(readlink "$GAMES_ROOT") does not exist: the drive holding the game is absent."
+  elif [ -d "$GAMES_ROOT" ] && [ -z "$(ls -A "$GAMES_ROOT" 2>/dev/null)" ]; then
+    hint="$GAMES_ROOT ($(readlink -f "$GAMES_ROOT")) is empty — the drive is not mounted. Mount it, or reinstall to a live disk."
+  fi
+  die "Game directory not found: $GAME_DIR" "$hint"
+fi
+
+[ -f "$GAME_DIR/Minecraft.Windows.exe" ] ||
+  die "Minecraft.Windows.exe missing from $GAME_DIR" \
+      "The install is incomplete — re-run scripts/update-bedrock.sh."
+
+[ -d "$PREFIX" ] ||
+  die "Wine prefix not found: $PREFIX" \
+      "Re-run scripts/setup.sh to recreate it."
 
 # ---- 1. clean up stale processes (the no-window gotcha) ----------------------
 echo "[play] cleaning up stale processes..."
