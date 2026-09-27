@@ -574,3 +574,7 @@ This project is licensed under the [GNU General Public License v3.0](LICENSE).
 - **mingw-w64 curl** ([curl license](https://curl.se/docs/copyright.html)) — replaces XCurl.dll for network functionality
 - **CA certificate bundle** ([Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/)) — from [curl.se/ca](https://curl.se/ca/cacert.pem)
 - **WineGDK** ([LGPL, same as Wine](https://github.com/Weather-OS/WineGDK)) — Wine fork with GDK support, built from source
+
+## License
+
+AGPL-3.0-or-later © 2026 Jeffrey Pine Hein. See [LICENSE](LICENSE).
