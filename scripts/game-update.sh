@@ -59,6 +59,13 @@ log() { printf '[game-update %s] %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$RUN_L
 result() { printf 'RESULT %s\n' "$*"; printf 'RESULT %s\n' "$*" >>"$RUN_LOG"; }
 # abort() — log the reason, emit a failing RESULT if we can, then exit non-zero.
 abort() { log "ABORT: $*"; exit 1; }
+# manifest_version() — package version from an appxmanifest.xml <Identity> element
+# (e.g. 1.26.4403.0); empty if the file or attribute is missing.
+manifest_version() {
+    [ -f "$1" ] || return 0
+    tr -d '\r\n' < "$1" | grep -oE '<Identity[^>]*>' | head -1 \
+        | sed -nE 's/.*[[:space:]]Version="([0-9.]+)".*/\1/p'
+}
 
 log "run log: $RUN_LOG"
 [ "$DRY_RUN" = 1 ] && log "DRY-RUN: read-only probes only, nothing destructive"
@@ -241,6 +248,19 @@ else
     fi
     [ -z "$NEW_VERSION" ] && abort "could not parse new_version from vm-update-minecraft.ps1 output"
     log "VM build version: $NEW_VERSION"
+
+    # No Store update AND the host already runs that build: stop here. Re-extracting
+    # an identical build would move a working install aside and spend ~20 min
+    # copying the same files back (2026-10-13). --skip-vm still forces a re-extract.
+    if [ "${NO_UPDATE:-0}" -gt 0 ]; then
+        HOST_VERSION="$(manifest_version "$GAME_GAME_DIR/appxmanifest.xml")"
+        if [ -n "$HOST_VERSION" ] && [ "$HOST_VERSION" = "$NEW_VERSION" ]; then
+            log "host already on $HOST_VERSION and the Store had no update; nothing to do (use --skip-vm to force a re-extract)"
+            result "new_version=$NEW_VERSION old_version=$HOST_VERSION smoke=skip no_update=true"
+            exit 0
+        fi
+        log "Store had no update, but host is on '${HOST_VERSION:-unknown}' vs VM $NEW_VERSION; extracting the VM build"
+    fi
 fi
 
 # =============================================================================

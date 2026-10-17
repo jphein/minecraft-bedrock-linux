@@ -2,12 +2,14 @@
 
 Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraft Bedrock on Ubuntu using [WineGDK](https://github.com/Weather-OS/WineGDK), a Wine fork with native GDK (Game Development Kit) support.
 
-> **Status: PLAYABLE (2026-06-28)** — Bedrock 26.32 runs on WineGDK + DXVK: the **menu renders**, **gamepad works** (Xbox / Stadia / PS3), **keyboard works**, and it **connects to remote BDS servers** (advertised as LAN games by the included proxy). **Menu mouse-clicks** may need the ~5s gate wait on 26.3x (keyboard/gamepad always work — see Known Limitations). Confirmed in real use. See [`PLAYING.md`](PLAYING.md) for how to play and [`ATTEMPTS.md`](ATTEMPTS.md) for the full investigation.
+> **Status: PLAYABLE (2026-08-23)** — Bedrock 26.44 runs on WineGDK + DXVK: the **menu renders**, **gamepad works** (Xbox / Stadia / PS3), **keyboard works**, and it **connects to remote BDS servers** (advertised as LAN games by the included proxy). **Menu mouse-clicks** may need the ~5s gate wait on 26.3x (keyboard/gamepad always work — see Known Limitations). Confirmed in real use. See [`PLAYING.md`](PLAYING.md) for how to play and [`ATTEMPTS.md`](ATTEMPTS.md) for the full investigation.
 >
 > **Quick start:** launch **"Minecraft Bedrock"** from the GNOME dash (or run `scripts/play-bedrock.sh [--windowed]`), connect a controller *before* launching, and join your server from **LAN Games**. Configure servers in the gitignored `scripts/servers.conf` (copy `scripts/servers.conf.example`).
 
 > **Known Limitations & Caveats**
 >
+> - **26.5x changed LAN multiplayer (2026-10-13)** — Bedrock 26.5x moved player-hosted LAN worlds to **NetherNet**: discovery is a UDP **7551** broadcast (same subnet only) and the old RakNet unconnected ping on UDP 19132 gets no answer. `scripts/lan-proxy.py` only relays RakNet, so it **cannot** advertise a 26.5x world across VLANs — put both devices on the same subnet. BDS ≥ 1.26.51 is reported NetherNet-only too, which will break the proxy for remote servers once they update. The 26.52 build was extracted to the game host on 2026-10-13 but has **not** been confirmed playable on this rig yet.
+> - **Alternative launcher** — [BedrockOnLinux](https://github.com/Wyze3306/BedrockOnLinux) downloads the GDK build straight from the Microsoft Store (no Windows VM) and ran 26.52.3 on the game host on 2026-10-13. On Ubuntu 24.04 its bundled Steam Runtime `bwrap` needs an AppArmor `userns` profile (otherwise `bwrap: setting up uid map: Permission denied` → "wineboot exited with status 1").
 > - **Menu mouse-clicks on 26.3x** — the custom dwmapi click-hook proxy that drove menu clicks on 1.26.21 page-faults under 26.3x's reworked pointer-input API, so the launcher uses Wine's **builtin** dwmapi (`dwmapi=b`). The game renders and plays fine; in the menu, give it the ~5s gate wait before clicking, or use keyboard/gamepad. In-world mouse-look is unaffected.
 > - **Intermittent "missing required component" error screen on launch** — a ~50/50 GDK component-check race. Just relaunch.
 > - **Silent "no window" on launch** — leftover `lan-proxy.py` / wineserver / game processes from a previous run make the game hang before rendering. `scripts/play-bedrock.sh` cleans these up automatically before launching.
@@ -27,13 +29,13 @@ Complete end-to-end guide: from creating a Windows 11 KVM VM to running Minecraf
 | Host OS | Ubuntu 24.04 LTS |
 | VM | Windows 11 on KVM/QEMU with virt-manager |
 | Runner | [WineGDK](https://github.com/Weather-OS/WineGDK) (built from source), Wine 11.8 |
-| Game Version | Bedrock 26.32 |
+| Game Version | Bedrock 26.44 |
 | GPU Tested | NVIDIA GeForce GTX 1650 (TU117), Driver 595.58.03 |
 | Forks | [jphein/WineGDK](https://github.com/jphein/WineGDK), [jphein/GDK-Proton](https://github.com/jphein/GDK-Proton) |
 
 ## Current Status (2026-06-28)
 
-**PLAYABLE.** Minecraft Bedrock 26.32 runs on Ubuntu Linux via WineGDK + DXVK — menu renders, **gamepad + keyboard work** (menu mouse-clicks may need the ~5s gate wait on 26.3x — see Known Limitations), connects to self-hosted BDS servers. Played end-to-end. Current build:
+**PLAYABLE.** Minecraft Bedrock 26.44 runs on Ubuntu Linux via WineGDK + DXVK — menu renders, **gamepad + keyboard work** (menu mouse-clicks may need the ~5s gate wait on 26.3x — see Known Limitations), connects to self-hosted BDS servers. Played end-to-end. Current build:
 
 | Build | Install Path | Notes |
 |-------|-------------|-------|

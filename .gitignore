@@ -41,3 +41,6 @@ scripts/update-targets.conf
 # Update-run logs (keep the dir, ignore its contents)
 logs/*
 !logs/.gitkeep
+
+# Local working notes / backups (never track)
+scratch/
