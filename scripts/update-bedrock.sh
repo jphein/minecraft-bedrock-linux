@@ -270,6 +270,7 @@ OLD_VERSION="$(result_get "$GAME_OUT" old_version)"
 GAME_EXE_SIZE="$(result_get "$GAME_OUT" exe_size)"
 GAME_FILE_COUNT="$(result_get "$GAME_OUT" file_count)"
 SMOKE="$(result_get "$GAME_OUT" smoke)"
+NO_UPDATE="$(result_get "$GAME_OUT" no_update)"
 
 if [ "$DRY_RUN" = 1 ]; then
   info "[dry-run] game-update exit=$GAME_RC; not gating on smoke."
@@ -277,13 +278,15 @@ else
   if [ "$GAME_RC" -ne 0 ]; then
     die "game-update.sh exited $GAME_RC. Build is BAD; NOTHING pushed to katana; game.bak rollback intact. See $GAME_OUT."
   fi
-  if [ "$SMOKE" != "pass" ]; then
+  if [ "$NO_UPDATE" = "true" ] && [ -n "$NEW_VERSION" ]; then
+    ok "Store had no update; game already on $NEW_VERSION (install untouched). Skipping the katana push."
+  elif [ "$SMOKE" != "pass" ]; then
     die "Smoke check did not pass (smoke='${SMOKE:-<none>}'). NOTHING pushed to katana; game.bak rollback intact. See $GAME_OUT."
   fi
   if [ -z "$NEW_VERSION" ]; then
     die "game-update.sh did not report RESULT new_version=. Refusing to push an unidentified build. See $GAME_OUT."
   fi
-  ok "Game build verified + smoke=pass. new_version=$NEW_VERSION (was ${OLD_VERSION:-?}), exe_size=${GAME_EXE_SIZE:-?}."
+  [ "$NO_UPDATE" = "true" ] || ok "Game build verified + smoke=pass. new_version=$NEW_VERSION (was ${OLD_VERSION:-?}), exe_size=${GAME_EXE_SIZE:-?}."
 fi
 
 # =============================================================================
@@ -291,7 +294,9 @@ fi
 # =============================================================================
 step "Phase 4: Push verified build to katana"
 
-if [ "$DRY_RUN" = 1 ]; then
+if [ "$NO_UPDATE" = "true" ]; then
+  info "No new build (Store had no update); katana push skipped."
+elif [ "$DRY_RUN" = 1 ]; then
   info "[dry-run] would back up '$KATANA_GAME_DIR' -> game.bak-<oldver> and delta-rsync from game."
 else
   # Resolve katana paths.
